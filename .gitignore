@@ -1,0 +1,7 @@
+src/bin/
+src/obj/
+*.user
+*.bat
+
+# Legacy PowerShell prototype - superseded by src/, not tracked
+BOMGAR MULTI SCREEN GUI.ps1
