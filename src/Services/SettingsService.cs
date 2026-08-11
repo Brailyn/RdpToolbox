@@ -2,13 +2,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 
-namespace BomgarMultiScreenRDP.Services
+namespace RdpToolbox.Services
 {
     internal class AppSettings
     {
         public string Monitors = "0";
-        public string Clipboard = "1";
         public string AutoConnect = "1";
+        public string AutoClickAll = "0";
+        public string AutoClickWebAuthn = "0";
+        public string AutoClickDrives = "0";
+        public string AutoClickClipboard = "1";
+        public string AutoClickPrinters = "0";
     }
 
     internal static class SettingsService
@@ -32,21 +36,37 @@ namespace BomgarMultiScreenRDP.Services
                 switch (key)
                 {
                     case "Monitors": settings.Monitors = value; break;
-                    case "Clipboard": settings.Clipboard = value; break;
                     case "AutoConnect": settings.AutoConnect = value; break;
+                    case "AutoClickAll": settings.AutoClickAll = value; break;
+                    case "AutoClickWebAuthn": settings.AutoClickWebAuthn = value; break;
+                    case "AutoClickDrives": settings.AutoClickDrives = value; break;
+                    case "AutoClickClipboard": settings.AutoClickClipboard = value; break;
+                    case "AutoClickPrinters": settings.AutoClickPrinters = value; break;
                 }
             }
 
             return settings;
         }
 
-        public static void Save(string settingsFile, string monitors, bool clipboard, bool autoConnect)
+        public static void Save(
+            string settingsFile,
+            string monitors,
+            bool autoConnect,
+            bool autoClickAll,
+            bool autoClickWebAuthn,
+            bool autoClickDrives,
+            bool autoClickClipboard,
+            bool autoClickPrinters)
         {
             var lines = new List<string>
             {
                 "Monitors=" + monitors,
-                "Clipboard=" + (clipboard ? "1" : "0"),
-                "AutoConnect=" + (autoConnect ? "1" : "0")
+                "AutoConnect=" + (autoConnect ? "1" : "0"),
+                "AutoClickAll=" + (autoClickAll ? "1" : "0"),
+                "AutoClickWebAuthn=" + (autoClickWebAuthn ? "1" : "0"),
+                "AutoClickDrives=" + (autoClickDrives ? "1" : "0"),
+                "AutoClickClipboard=" + (autoClickClipboard ? "1" : "0"),
+                "AutoClickPrinters=" + (autoClickPrinters ? "1" : "0")
             };
 
             File.WriteAllLines(settingsFile, lines);

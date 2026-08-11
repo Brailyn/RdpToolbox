@@ -6,12 +6,13 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{FEE29E1F-E5B9-4427-A986-48C1BE79E194}</ProjectGuid>
     <OutputType>WinExe</OutputType>
-    <RootNamespace>BomgarMultiScreenRDP</RootNamespace>
-    <AssemblyName>BomgarMultiScreenRDP</AssemblyName>
+    <RootNamespace>RdpToolbox</RootNamespace>
+    <AssemblyName>RdpToolbox</AssemblyName>
     <TargetFrameworkVersion>v4.8.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
+    <ApplicationIcon>AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -45,12 +46,20 @@
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="ServerHistoryForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Services\RdpAutoConnectService.cs" />
     <Compile Include="Services\SettingsService.cs" />
+    <Compile Include="Services\ServerHistoryService.cs" />
+    <Compile Include="Services\CredentialStagingService.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="AppIcon.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

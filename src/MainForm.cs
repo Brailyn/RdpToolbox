@@ -1,13 +1,15 @@
-using BomgarMultiScreenRDP.Services;
+using RdpToolbox.Services;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows.Forms;
 
-namespace BomgarMultiScreenRDP
+namespace RdpToolbox
 {
     public class MainForm : Form
     {
@@ -25,70 +27,115 @@ namespace BomgarMultiScreenRDP
             public RectangleF Rect;
         }
 
+        private const string FullScreenResolutionOption = "Full screen (span selected monitor)";
+
+        private static readonly Size[] TypicalResolutions =
+        {
+            new Size(1024, 768), new Size(1152, 864), new Size(1280, 720), new Size(1280, 800),
+            new Size(1280, 1024), new Size(1366, 768), new Size(1440, 900), new Size(1600, 900),
+            new Size(1680, 1050), new Size(1920, 1080), new Size(1920, 1200), new Size(2560, 1080),
+            new Size(2560, 1440), new Size(2560, 1600), new Size(3440, 1440), new Size(3840, 2160)
+        };
+
+        private readonly string appDataDir;
         private readonly string settingsFile;
+        private readonly string historyFile;
         private readonly string rdpFile;
 
         private List<MonitorInfo> monitorData = new List<MonitorInfo>();
         private List<PreviewRectInfo> previewRects = new List<PreviewRectInfo>();
         private List<string> selectedMonitorValues = new List<string>();
 
-        private TextBox textServer;
+        private ComboBox comboServer;
+        private Button buttonHistory;
         private TextBox textUser;
+        private TextBox textPassword;
+        private CheckBox checkShowPassword;
         private Label statusLabel;
         private Panel previewPanel;
-        private CheckBox checkClipboard;
+        private Label labelResolution;
+        private ComboBox comboResolution;
+        private GroupBox groupAutoClick;
         private CheckBox checkAutoConnect;
-        private TextBox textSettingsPath;
-        private TextBox textRdpPath;
+        private CheckBox checkAutoClickAll;
+        private CheckBox checkAutoClickWebAuthn;
+        private CheckBox checkAutoClickDrives;
+        private CheckBox checkAutoClickClipboard;
+        private CheckBox checkAutoClickPrinters;
 
         public MainForm()
         {
-            var appDataDir = Path.Combine(
+            appDataDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Bomgar", "MultiScreenRdp");
+                "RdpToolbox");
 
             settingsFile = Path.Combine(appDataDir, "settings.ini");
-            rdpFile = Path.Combine(appDataDir, "BOMGAR-MULTI-SCREEN.rdp");
+            historyFile = Path.Combine(appDataDir, "server-history.txt");
+            rdpFile = Path.Combine(appDataDir, "RDP-Toolbox-Session.rdp");
 
             Directory.CreateDirectory(appDataDir);
 
             InitializeComponent();
 
             var settings = SettingsService.Load(settingsFile);
-            checkClipboard.Checked = settings.Clipboard != "0";
             checkAutoConnect.Checked = settings.AutoConnect != "0";
-            textSettingsPath.Text = settingsFile;
-            textRdpPath.Text = rdpFile;
+            checkAutoClickAll.Checked = settings.AutoClickAll != "0";
+            checkAutoClickWebAuthn.Checked = settings.AutoClickWebAuthn != "0";
+            checkAutoClickDrives.Checked = settings.AutoClickDrives != "0";
+            checkAutoClickClipboard.Checked = settings.AutoClickClipboard != "0";
+            checkAutoClickPrinters.Checked = settings.AutoClickPrinters != "0";
+            UpdateAutoClickEnabledState();
 
+            RefreshServerHistoryItems();
             LoadMonitors(settings.Monitors);
         }
 
         private void InitializeComponent()
         {
-            Text = "BOMGAR Multi-Screen RDP Tool";
+            Text = "RDP Toolbox";
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(860, 640);
-            MinimumSize = new Size(860, 640);
+            Size = new Size(940, 720);
+            MinimumSize = new Size(940, 720);
+            Icon = LoadEmbeddedIcon();
 
             var labelServer = new Label { Text = "Server Address:", Location = new Point(20, 20), AutoSize = true };
             Controls.Add(labelServer);
 
-            textServer = new TextBox { Location = new Point(140, 16), Size = new Size(680, 24) };
-            Controls.Add(textServer);
+            comboServer = new ComboBox
+            {
+                Location = new Point(150, 16),
+                Size = new Size(600, 24),
+                DropDownStyle = ComboBoxStyle.DropDown
+            };
+            Controls.Add(comboServer);
+
+            buttonHistory = new Button { Text = "Manage History", Location = new Point(760, 15), Size = new Size(150, 26) };
+            buttonHistory.Click += ButtonHistory_Click;
+            Controls.Add(buttonHistory);
 
             var labelUser = new Label { Text = "Username:", Location = new Point(20, 55), AutoSize = true };
             Controls.Add(labelUser);
 
-            textUser = new TextBox { Location = new Point(140, 51), Size = new Size(680, 24) };
+            textUser = new TextBox { Location = new Point(150, 51), Size = new Size(760, 24) };
             Controls.Add(textUser);
 
-            statusLabel = new Label { Location = new Point(20, 95), Size = new Size(800, 20) };
+            var labelPassword = new Label { Text = "Password:", Location = new Point(20, 90), AutoSize = true };
+            Controls.Add(labelPassword);
+
+            textPassword = new TextBox { Location = new Point(150, 86), Size = new Size(600, 24), UseSystemPasswordChar = true };
+            Controls.Add(textPassword);
+
+            checkShowPassword = new CheckBox { Text = "Show", Location = new Point(760, 88), AutoSize = true };
+            checkShowPassword.CheckedChanged += (s, e) => textPassword.UseSystemPasswordChar = !checkShowPassword.Checked;
+            Controls.Add(checkShowPassword);
+
+            statusLabel = new Label { Location = new Point(20, 125), Size = new Size(900, 20) };
             Controls.Add(statusLabel);
 
             previewPanel = new Panel
             {
-                Location = new Point(20, 125),
-                Size = new Size(800, 320),
+                Location = new Point(20, 150),
+                Size = new Size(900, 300),
                 BorderStyle = BorderStyle.FixedSingle,
                 BackColor = Color.WhiteSmoke
             };
@@ -108,31 +155,88 @@ namespace BomgarMultiScreenRDP
             buttonClear.Click += ButtonClear_Click;
             Controls.Add(buttonClear);
 
-            checkClipboard = new CheckBox { Text = "Enable Clipboard redirection", Location = new Point(20, 505), AutoSize = true };
-            Controls.Add(checkClipboard);
+            labelResolution = new Label { Text = "Resolution (single monitor only):", Location = new Point(400, 466), AutoSize = true };
+            Controls.Add(labelResolution);
 
-            checkAutoConnect = new CheckBox { Text = "Auto-click Connect (skip security prompt)", Location = new Point(230, 505), AutoSize = true };
-            Controls.Add(checkAutoConnect);
+            comboResolution = new ComboBox { Location = new Point(620, 462), Size = new Size(300, 24), DropDownStyle = ComboBoxStyle.DropDownList };
+            Controls.Add(comboResolution);
 
-            var buttonLaunch = new Button { Text = "Launch RDP", Location = new Point(640, 505), Size = new Size(90, 32) };
+            groupAutoClick = new GroupBox
+            {
+                Text = "Auto-click the connection prompt",
+                Location = new Point(20, 500),
+                Size = new Size(900, 110)
+            };
+            Controls.Add(groupAutoClick);
+
+            checkAutoConnect = new CheckBox { Text = "Auto Connect", Location = new Point(15, 25), AutoSize = true };
+            groupAutoClick.Controls.Add(checkAutoConnect);
+
+            checkAutoClickAll = new CheckBox { Text = "All", Location = new Point(15, 55), AutoSize = true };
+            checkAutoClickAll.CheckedChanged += (s, e) => UpdateAutoClickEnabledState();
+            groupAutoClick.Controls.Add(checkAutoClickAll);
+
+            checkAutoClickWebAuthn = new CheckBox { Text = "WebAuthn", Location = new Point(90, 55), AutoSize = true };
+            groupAutoClick.Controls.Add(checkAutoClickWebAuthn);
+
+            checkAutoClickDrives = new CheckBox { Text = "Drives", Location = new Point(210, 55), AutoSize = true };
+            groupAutoClick.Controls.Add(checkAutoClickDrives);
+
+            checkAutoClickClipboard = new CheckBox { Text = "Clipboard", Location = new Point(310, 55), AutoSize = true };
+            groupAutoClick.Controls.Add(checkAutoClickClipboard);
+
+            checkAutoClickPrinters = new CheckBox { Text = "Printers", Location = new Point(430, 55), AutoSize = true };
+            groupAutoClick.Controls.Add(checkAutoClickPrinters);
+
+            var buttonOpenDataFolder = new Button { Text = "Open Data Folder", Location = new Point(20, 630), Size = new Size(160, 32) };
+            buttonOpenDataFolder.Click += (s, e) => Process.Start("explorer.exe", "\"" + appDataDir + "\"");
+            Controls.Add(buttonOpenDataFolder);
+
+            var buttonLaunch = new Button { Text = "Launch RDP", Location = new Point(700, 630), Size = new Size(110, 32) };
             buttonLaunch.Click += ButtonLaunch_Click;
             Controls.Add(buttonLaunch);
 
-            var buttonCancel = new Button { Text = "Cancel", Location = new Point(740, 505), Size = new Size(80, 32) };
+            var buttonCancel = new Button { Text = "Cancel", Location = new Point(820, 630), Size = new Size(100, 32) };
             buttonCancel.Click += (s, e) => Close();
             Controls.Add(buttonCancel);
+        }
 
-            var labelSettings = new Label { Text = "Settings file:", Location = new Point(20, 545), AutoSize = true };
-            Controls.Add(labelSettings);
+        private static Icon LoadEmbeddedIcon()
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            using (var stream = assembly.GetManifestResourceStream("RdpToolbox.AppIcon.ico"))
+            {
+                return stream != null ? new Icon(stream) : null;
+            }
+        }
 
-            textSettingsPath = new TextBox { Location = new Point(110, 542), Size = new Size(710, 24), ReadOnly = true };
-            Controls.Add(textSettingsPath);
+        private void UpdateAutoClickEnabledState()
+        {
+            bool notAll = !checkAutoClickAll.Checked;
+            checkAutoClickWebAuthn.Enabled = notAll;
+            checkAutoClickDrives.Enabled = notAll;
+            checkAutoClickClipboard.Enabled = notAll;
+            checkAutoClickPrinters.Enabled = notAll;
+        }
 
-            var labelRdp = new Label { Text = "RDP file:", Location = new Point(20, 575), AutoSize = true };
-            Controls.Add(labelRdp);
+        private void RefreshServerHistoryItems()
+        {
+            var current = comboServer.Text;
+            comboServer.Items.Clear();
+            foreach (var server in ServerHistoryService.Load(historyFile))
+                comboServer.Items.Add(server);
+            comboServer.Text = current;
+        }
 
-            textRdpPath = new TextBox { Location = new Point(110, 572), Size = new Size(710, 24), ReadOnly = true };
-            Controls.Add(textRdpPath);
+        private void ButtonHistory_Click(object sender, EventArgs e)
+        {
+            using (var form = new ServerHistoryForm(historyFile))
+            {
+                if (form.ShowDialog(this) == DialogResult.OK && !string.IsNullOrEmpty(form.SelectedServer))
+                    comboServer.Text = form.SelectedServer;
+
+                RefreshServerHistoryItems();
+            }
         }
 
         private List<MonitorInfo> GetDetectedMonitors()
@@ -168,6 +272,86 @@ namespace BomgarMultiScreenRDP
             return string.Join(",", selectedMonitorValues.OrderBy(v => int.Parse(v)));
         }
 
+        // Two monitors are adjacent when they share a real edge segment (not just a corner point).
+        private static bool AreAdjacent(MonitorInfo a, MonitorInfo b)
+        {
+            bool verticalOverlap = a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
+            bool horizontalTouch = a.X + a.Width == b.X || b.X + b.Width == a.X;
+
+            bool horizontalOverlap = a.X < b.X + b.Width && b.X < a.X + a.Width;
+            bool verticalTouch = a.Y + a.Height == b.Y || b.Y + b.Height == a.Y;
+
+            return (verticalOverlap && horizontalTouch) || (horizontalOverlap && verticalTouch);
+        }
+
+        private bool IsConnectedSet(IEnumerable<string> values)
+        {
+            var monitors = values.Select(v => monitorData.FirstOrDefault(m => m.Value == v)).Where(m => m != null).ToList();
+            if (monitors.Count <= 1)
+                return true;
+
+            var visited = new HashSet<string> { monitors[0].Value };
+            var queue = new Queue<MonitorInfo>();
+            queue.Enqueue(monitors[0]);
+
+            while (queue.Count > 0)
+            {
+                var cur = queue.Dequeue();
+                foreach (var other in monitors)
+                {
+                    if (visited.Contains(other.Value))
+                        continue;
+                    if (AreAdjacent(cur, other))
+                    {
+                        visited.Add(other.Value);
+                        queue.Enqueue(other);
+                    }
+                }
+            }
+
+            return visited.Count == monitors.Count;
+        }
+
+        private List<string> LargestConnectedGroup()
+        {
+            var visitedAll = new HashSet<string>();
+            var best = new List<string>();
+
+            foreach (var start in monitorData)
+            {
+                if (visitedAll.Contains(start.Value))
+                    continue;
+
+                var component = new List<string>();
+                var visited = new HashSet<string> { start.Value };
+                var queue = new Queue<MonitorInfo>();
+                queue.Enqueue(start);
+
+                while (queue.Count > 0)
+                {
+                    var cur = queue.Dequeue();
+                    component.Add(cur.Value);
+                    visitedAll.Add(cur.Value);
+
+                    foreach (var other in monitorData)
+                    {
+                        if (visited.Contains(other.Value))
+                            continue;
+                        if (AreAdjacent(cur, other))
+                        {
+                            visited.Add(other.Value);
+                            queue.Enqueue(other);
+                        }
+                    }
+                }
+
+                if (component.Count > best.Count)
+                    best = component;
+            }
+
+            return best;
+        }
+
         private void LoadMonitors(string savedMonitors)
         {
             monitorData = GetDetectedMonitors();
@@ -176,7 +360,7 @@ namespace BomgarMultiScreenRDP
                 ? new string[0]
                 : savedMonitors.Split(',').Select(v => v.Trim()).Where(v => v != "").ToArray();
 
-            if (saved.Length > 0)
+            if (saved.Length > 0 && IsConnectedSet(saved))
                 SetSelectedMonitorValues(saved);
             else if (monitorData.Count > 0)
                 SetSelectedMonitorValues(new[] { monitorData[0].Value });
@@ -184,9 +368,42 @@ namespace BomgarMultiScreenRDP
                 SetSelectedMonitorValues(new string[0]);
 
             statusLabel.Text = string.Format(
-                "Detected {0} monitor(s). Click to select. Ctrl+Click to toggle.",
+                "Detected {0} monitor(s). Click to select. Ctrl+Click to add an adjacent monitor.",
                 monitorData.Count);
+
+            UpdateResolutionOptions();
             previewPanel.Invalidate();
+        }
+
+        private void UpdateResolutionOptions()
+        {
+            comboResolution.Items.Clear();
+            comboResolution.Items.Add(FullScreenResolutionOption);
+
+            if (selectedMonitorValues.Count == 1)
+            {
+                var mon = monitorData.FirstOrDefault(m => m.Value == selectedMonitorValues[0]);
+                if (mon != null)
+                {
+                    var options = TypicalResolutions
+                        .Where(res => res.Width <= mon.Width && res.Height <= mon.Height)
+                        .ToList();
+
+                    var nativeSize = new Size(mon.Width, mon.Height);
+                    if (!options.Contains(nativeSize))
+                        options.Add(nativeSize);
+
+                    foreach (var res in options.OrderBy(r => r.Width * r.Height))
+                        comboResolution.Items.Add(res.Width + " x " + res.Height);
+                }
+                comboResolution.Enabled = true;
+            }
+            else
+            {
+                comboResolution.Enabled = false;
+            }
+
+            comboResolution.SelectedIndex = 0;
         }
 
         private void PreviewPanel_Paint(object sender, PaintEventArgs e)
@@ -282,38 +499,70 @@ namespace BomgarMultiScreenRDP
 
             if (ctrlPressed)
             {
-                if (selectedMonitorValues.Contains(value))
-                    selectedMonitorValues.Remove(value);
+                var candidate = selectedMonitorValues.Contains(value)
+                    ? selectedMonitorValues.Where(v => v != value).ToList()
+                    : selectedMonitorValues.Concat(new[] { value }).ToList();
+
+                if (IsConnectedSet(candidate))
+                {
+                    selectedMonitorValues = candidate;
+                }
                 else
-                    selectedMonitorValues.Add(value);
+                {
+                    statusLabel.Text = "Only side-by-side (adjacent) monitors can be selected together.";
+                    return;
+                }
             }
             else
             {
                 SetSelectedMonitorValues(new[] { value });
             }
 
+            UpdateResolutionOptions();
             previewPanel.Invalidate();
         }
 
-        private void WriteRdpFile(string server, string username, string selectedMonitors, bool clipboard)
+        private void WriteRdpFile(
+            string server,
+            string username,
+            string selectedMonitors,
+            Size? customResolution,
+            bool redirectClipboard,
+            bool redirectDrives,
+            bool redirectPrinters,
+            bool redirectWebAuthn,
+            bool promptForCredentials)
         {
-            int clipboardValue = clipboard ? 1 : 0;
-            int disableClipboardValue = clipboard ? 0 : 1;
-
-            var lines = new[]
+            var lines = new List<string>
             {
                 "full address:s:" + server,
                 "username:s:" + username,
-                "prompt for credentials:i:1",
+                "prompt for credentials:i:" + (promptForCredentials ? 1 : 0),
                 "administrative session:i:1",
-                "screen mode id:i:1",
-                "use multimon:i:1",
-                "selectedmonitors:s:" + selectedMonitors,
-                "redirectclipboard:i:" + clipboardValue,
-                "disableclipboardredirection:i:" + disableClipboardValue,
-                "redirectprinters:i:0",
-                "redirectsmartcards:i:0"
+                "screen mode id:i:1"
             };
+
+            if (customResolution.HasValue)
+            {
+                lines.Add("use multimon:i:0");
+                lines.Add("smart sizing:i:1");
+                lines.Add("desktopwidth:i:" + customResolution.Value.Width);
+                lines.Add("desktopheight:i:" + customResolution.Value.Height);
+            }
+            else
+            {
+                lines.Add("use multimon:i:1");
+                lines.Add("selectedmonitors:s:" + selectedMonitors);
+            }
+
+            lines.Add("redirectclipboard:i:" + (redirectClipboard ? 1 : 0));
+            lines.Add("disableclipboardredirection:i:" + (redirectClipboard ? 0 : 1));
+            lines.Add("redirectprinters:i:" + (redirectPrinters ? 1 : 0));
+            lines.Add("redirectdrives:i:" + (redirectDrives ? 1 : 0));
+            if (redirectDrives)
+                lines.Add("drivestoredirect:s:*");
+            lines.Add("redirectwebauthn:i:" + (redirectWebAuthn ? 1 : 0));
+            lines.Add("redirectsmartcards:i:0");
 
             File.WriteAllLines(rdpFile, lines, System.Text.Encoding.ASCII);
         }
@@ -326,27 +575,41 @@ namespace BomgarMultiScreenRDP
 
         private void ButtonAll_Click(object sender, EventArgs e)
         {
-            SetSelectedMonitorValues(monitorData.Select(m => m.Value));
+            var allValues = monitorData.Select(m => m.Value).ToList();
+
+            if (IsConnectedSet(allValues))
+            {
+                SetSelectedMonitorValues(allValues);
+            }
+            else
+            {
+                SetSelectedMonitorValues(LargestConnectedGroup());
+                statusLabel.Text = "Monitors aren't all adjacent; selected the largest connected group instead.";
+            }
+
+            UpdateResolutionOptions();
             previewPanel.Invalidate();
         }
 
         private void ButtonClear_Click(object sender, EventArgs e)
         {
             SetSelectedMonitorValues(new string[0]);
+            UpdateResolutionOptions();
             previewPanel.Invalidate();
         }
 
         private void ButtonLaunch_Click(object sender, EventArgs e)
         {
-            var server = textServer.Text.Trim();
+            var server = comboServer.Text.Trim();
             var username = textUser.Text.Trim();
+            var password = textPassword.Text;
             var selectedMonitors = GetSelectedMonitorString();
 
             if (string.IsNullOrWhiteSpace(server) && string.IsNullOrWhiteSpace(username))
             {
                 if (File.Exists(rdpFile))
                 {
-                    LaunchRdp();
+                    LaunchRdp(null);
                     return;
                 }
 
@@ -372,20 +635,73 @@ namespace BomgarMultiScreenRDP
                 return;
             }
 
-            SettingsService.Save(settingsFile, selectedMonitors, checkClipboard.Checked, checkAutoConnect.Checked);
-            WriteRdpFile(server, username, selectedMonitors, checkClipboard.Checked);
-            textSettingsPath.Text = settingsFile;
-            textRdpPath.Text = rdpFile;
-            LaunchRdp();
+            Size? customResolution = null;
+            if (selectedMonitorValues.Count == 1 && comboResolution.SelectedItem != null &&
+                comboResolution.SelectedItem.ToString() != FullScreenResolutionOption)
+            {
+                var parts = comboResolution.SelectedItem.ToString().Split('x');
+                customResolution = new Size(int.Parse(parts[0].Trim()), int.Parse(parts[1].Trim()));
+            }
+
+            bool wantAll = checkAutoClickAll.Checked;
+            bool redirectDrives = wantAll || checkAutoClickDrives.Checked;
+            bool redirectPrinters = wantAll || checkAutoClickPrinters.Checked;
+            bool redirectWebAuthn = wantAll || checkAutoClickWebAuthn.Checked;
+            bool redirectClipboard = wantAll || checkAutoClickClipboard.Checked;
+
+            bool hasPassword = !string.IsNullOrEmpty(password);
+            string stagedCredentialServer = null;
+            if (hasPassword && CredentialStagingService.Stage(server, username, password))
+                stagedCredentialServer = server;
+
+            SettingsService.Save(
+                settingsFile,
+                selectedMonitors,
+                checkAutoConnect.Checked,
+                checkAutoClickAll.Checked,
+                checkAutoClickWebAuthn.Checked,
+                checkAutoClickDrives.Checked,
+                checkAutoClickClipboard.Checked,
+                checkAutoClickPrinters.Checked);
+
+            WriteRdpFile(
+                server,
+                username,
+                selectedMonitors,
+                customResolution,
+                redirectClipboard,
+                redirectDrives,
+                redirectPrinters,
+                redirectWebAuthn,
+                !hasPassword);
+
+            ServerHistoryService.Add(historyFile, server);
+            RefreshServerHistoryItems();
+            comboServer.Text = server;
+
+            LaunchRdp(stagedCredentialServer);
         }
 
-        private void LaunchRdp()
+        private void LaunchRdp(string stagedCredentialServer)
         {
             var checkboxNames = new List<string> { "Don't ask me again for connections to this computer" };
-            if (checkClipboard.Checked)
-                checkboxNames.Add("Clipboard");
+            bool toggleAll = checkAutoConnect.Checked && checkAutoClickAll.Checked;
 
-            RdpAutoConnectService.Connect(rdpFile, checkAutoConnect.Checked, checkboxNames.ToArray());
+            if (!toggleAll)
+            {
+                if (checkAutoClickWebAuthn.Checked) checkboxNames.Add("WebAuthn");
+                if (checkAutoClickDrives.Checked) checkboxNames.Add("Drives");
+                if (checkAutoClickClipboard.Checked) checkboxNames.Add("Clipboard");
+                if (checkAutoClickPrinters.Checked) checkboxNames.Add("Printers");
+            }
+
+            var process = RdpAutoConnectService.Connect(rdpFile, checkAutoConnect.Checked, checkboxNames.ToArray(), toggleAll);
+
+            if (stagedCredentialServer != null && process != null)
+            {
+                process.EnableRaisingEvents = true;
+                process.Exited += (s, e) => CredentialStagingService.Remove(stagedCredentialServer);
+            }
         }
     }
 }

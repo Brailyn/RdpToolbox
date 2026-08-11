@@ -1,34 +1,36 @@
-using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Windows.Automation;
 
-namespace BomgarMultiScreenRDP.Services
+namespace RdpToolbox.Services
 {
     internal static class RdpAutoConnectService
     {
         private const string ConnectButtonId = "1";
 
-        public static void Connect(string rdpPath, bool autoConnect, string[] checkboxNames)
+        public static Process Connect(string rdpPath, bool autoConnect, string[] checkboxNames, bool toggleAllCheckboxes)
         {
-            Process.Start("mstsc.exe", "\"" + rdpPath + "\"");
+            var process = Process.Start("mstsc.exe", "\"" + rdpPath + "\"");
 
             if (!autoConnect)
-                return;
+                return process;
 
             var dialog = WaitForMstscDialog(15000);
             if (dialog == null)
             {
-                // No security prompt appeared (e.g. already-trusted host) - nothing to click
-                return;
+                // No connection prompt appeared (e.g. already-trusted host) - nothing to click
+                return process;
             }
 
-            foreach (var name in checkboxNames)
-            {
-                ToggleCheckboxByName(dialog, name);
-            }
+            if (toggleAllCheckboxes)
+                ToggleAllCheckboxes(dialog);
+            else
+                foreach (var name in checkboxNames)
+                    ToggleCheckboxByName(dialog, name);
 
             ClickConnectButton(dialog);
+
+            return process;
         }
 
         private static AutomationElement WaitForMstscDialog(int timeoutMs)
@@ -48,7 +50,7 @@ namespace BomgarMultiScreenRDP.Services
                             continue;
 
                         var process = Process.GetProcessById(win.Current.ProcessId);
-                        if (!process.ProcessName.Equals("mstsc", StringComparison.OrdinalIgnoreCase))
+                        if (!process.ProcessName.Equals("mstsc", System.StringComparison.OrdinalIgnoreCase))
                             continue;
 
                         Thread.Sleep(50);
@@ -83,6 +85,34 @@ namespace BomgarMultiScreenRDP.Services
             catch
             {
                 // Checkbox not present on this prompt variant - ignore
+            }
+        }
+
+        private static void ToggleAllCheckboxes(AutomationElement dialog)
+        {
+            try
+            {
+                var checkboxes = dialog.FindAll(
+                    TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.CheckBox));
+
+                foreach (AutomationElement checkbox in checkboxes)
+                {
+                    try
+                    {
+                        var pattern = (TogglePattern)checkbox.GetCurrentPattern(TogglePattern.Pattern);
+                        if (pattern.Current.ToggleState != ToggleState.On)
+                            pattern.Toggle();
+                    }
+                    catch
+                    {
+                        // Not every checkbox exposes TogglePattern - ignore
+                    }
+                }
+            }
+            catch
+            {
+                // No checkboxes present on this prompt variant - ignore
             }
         }
 

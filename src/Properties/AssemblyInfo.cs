@@ -1,10 +1,10 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-[assembly: AssemblyTitle("BomgarMultiScreenRDP")]
-[assembly: AssemblyDescription("One-click multi-monitor Bomgar RDP launcher")]
-[assembly: AssemblyProduct("BomgarMultiScreenRDP")]
+[assembly: AssemblyTitle("RDP Toolbox")]
+[assembly: AssemblyDescription("Multi-monitor RDP launcher with adjacent-monitor selection, resolution picking, server history and connection-prompt auto-click")]
+[assembly: AssemblyProduct("RDP Toolbox")]
 [assembly: ComVisible(false)]
 [assembly: Guid("6c2f9c1a-2e2b-4a5b-9c3e-1f0f7f0f8f21")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("2.0.0.0")]
+[assembly: AssemblyFileVersion("2.0.0.0")]
