@@ -201,22 +201,26 @@ namespace RdpToolbox
             checkAutoClickPrinters = new CheckBox { Text = "Printers", Location = new Point(430, 55), AutoSize = true };
             groupAutoClick.Controls.Add(checkAutoClickPrinters);
 
-            var labelClient = new Label { Text = "Client:", Location = new Point(200, 639), AutoSize = true };
+            var labelClient = new Label { Text = "Client:", Location = new Point(288, 639), AutoSize = true };
             Controls.Add(labelClient);
 
             comboClient = new ComboBox
             {
-                Location = new Point(250, 635),
-                Size = new Size(230, 24),
+                Location = new Point(336, 635),
+                Size = new Size(210, 24),
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
             comboClient.Items.AddRange(new object[] { ClientAuto, ClientMstsc, ClientMsrdc });
             comboClient.SelectedIndex = 0;
             Controls.Add(comboClient);
 
-            var buttonOpenDataFolder = new Button { Text = "Open Data Folder", Location = new Point(20, 630), Size = new Size(160, 32) };
+            var buttonOpenDataFolder = new Button { Text = "Open Data Folder", Location = new Point(20, 630), Size = new Size(140, 32) };
             buttonOpenDataFolder.Click += (s, e) => Process.Start("explorer.exe", "\"" + appDataDir + "\"");
             Controls.Add(buttonOpenDataFolder);
+
+            var buttonDiagnostics = new Button { Text = "Diagnostics", Location = new Point(168, 630), Size = new Size(100, 32) };
+            buttonDiagnostics.Click += ButtonDiagnostics_Click;
+            Controls.Add(buttonDiagnostics);
 
             var buttonLaunch = new Button { Text = "Launch RDP", Location = new Point(700, 630), Size = new Size(110, 32) };
             buttonLaunch.Click += ButtonLaunch_Click;
@@ -802,6 +806,46 @@ namespace RdpToolbox
             LaunchRdp(stagedCredentialServer);
         }
 
+        private void CollectDiagnosticsInBackground(string launchedClient, string reason)
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    DiagnosticsService.Collect(appDataDir, rdpFile, settingsFile, launchedClient, reason);
+                }
+                catch
+                {
+                    // Diagnostics are best effort - never interfere with the session
+                }
+            });
+        }
+
+        private void ButtonDiagnostics_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                Cursor = Cursors.WaitCursor;
+                var path = DiagnosticsService.Collect(
+                    appDataDir, rdpFile, settingsFile, "(not launched - collected on demand)", "manual");
+
+                statusLabel.Text = "Diagnostics written to " + Path.GetFileName(path);
+                Process.Start("explorer.exe", "/select,\"" + path + "\"");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Could not write diagnostics:\n\n" + ex.Message,
+                    "Diagnostics failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }
+
         private string SelectedClientSetting()
         {
             var choice = comboClient.SelectedItem as string;
@@ -911,6 +955,14 @@ namespace RdpToolbox
                 statusLabel.Text = usingMsrdc
                     ? "Launched with Remote Desktop client: " + clientPath
                     : "Launched with the built-in client (mstsc.exe).";
+
+                // Record the state that produced this session, so a session that turns out to be
+                // slow or wrong can be diagnosed after the fact. Collection touches WMI and the
+                // event log, so keep it off the UI thread and never let it disturb the launch.
+                var reason = clientChoice == "auto"
+                    ? (usingMsrdc ? "automatic: mixed display scaling with a spanned session" : "automatic: no mixed-scaling span detected")
+                    : "pinned by the client selector";
+                CollectDiagnosticsInBackground(clientPath, reason);
             }
             catch (Exception ex)
             {

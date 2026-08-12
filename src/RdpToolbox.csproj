@@ -40,6 +40,7 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Management" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="UIAutomationClient" />
     <Reference Include="UIAutomationTypes" />
@@ -59,6 +60,7 @@
     <Compile Include="Services\CredentialStagingService.cs" />
     <Compile Include="Services\DisplayScalingService.cs" />
     <Compile Include="Services\RdpClientLocator.cs" />
+    <Compile Include="Services\DiagnosticsService.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
