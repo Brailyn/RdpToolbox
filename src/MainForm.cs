@@ -671,16 +671,35 @@ namespace RdpToolbox
                     lines.Add("selectedmonitors:s:" + selectedMonitors[0].Value);
             }
 
-            // State the graphics and bandwidth settings explicitly. Left unspecified, each client
-            // applies its own defaults, so the same file can perform very differently between
-            // mstsc and msrdc - the latter can settle on a conservative codec path that repaints
-            // the screen progressively and lags the pointer.
-            lines.Add("networkautodetect:i:1");
-            lines.Add("bandwidthautodetect:i:1");
-            lines.Add("connection type:i:7");
+            // State the graphics and bandwidth settings explicitly rather than relying on each
+            // client's defaults.
             lines.Add("compression:i:1");
             lines.Add("bitmapcachepersistenable:i:1");
             lines.Add("videoplaybackmode:i:1");
+
+            if (IsTunnelledAddress(server))
+            {
+                // Connections through a local port forward (a jump client or gateway listening
+                // on loopback) carry only TCP. RDP's multi-transport side channel is UDP, so it
+                // cannot traverse the forward: the client logs "failed to establish the
+                // multi-transport connection", then stalls its receive thread retrying, which
+                // shows up as a session that repaints progressively and lags the pointer.
+                // Asking for TCP only avoids the doomed negotiation.
+                lines.Add("usemultitransport:i:0");
+
+                // Autodetect measures the loopback hop rather than the real link behind the
+                // tunnel, so its conclusions are meaningless here.
+                lines.Add("networkautodetect:i:0");
+                lines.Add("bandwidthautodetect:i:0");
+                lines.Add("connection type:i:6");
+            }
+            else
+            {
+                lines.Add("usemultitransport:i:1");
+                lines.Add("networkautodetect:i:1");
+                lines.Add("bandwidthautodetect:i:1");
+                lines.Add("connection type:i:7");
+            }
 
             lines.Add("redirectclipboard:i:" + (redirectClipboard ? 1 : 0));
             lines.Add("disableclipboardredirection:i:" + (redirectClipboard ? 0 : 1));
@@ -692,6 +711,36 @@ namespace RdpToolbox
             lines.Add("redirectsmartcards:i:0");
 
             File.WriteAllLines(rdpFile, lines, System.Text.Encoding.ASCII);
+        }
+
+        // True when the session goes through a port forward on this machine - a jump client or
+        // gateway listening on loopback - rather than straight to the host.
+        private static bool IsTunnelledAddress(string server)
+        {
+            if (string.IsNullOrWhiteSpace(server))
+                return false;
+
+            // Strip any port, and the brackets IPv6 literals are written with.
+            var host = server.Trim();
+            if (host.StartsWith("["))
+            {
+                var close = host.IndexOf(']');
+                if (close > 0)
+                    host = host.Substring(1, close - 1);
+            }
+            else
+            {
+                var colon = host.IndexOf(':');
+                if (colon > 0)
+                    host = host.Substring(0, colon);
+            }
+
+            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host == "::1")
+                return true;
+
+            System.Net.IPAddress address;
+            return System.Net.IPAddress.TryParse(host, out address) &&
+                   System.Net.IPAddress.IsLoopback(address);
         }
 
         private void ButtonDetect_Click(object sender, EventArgs e)
@@ -808,10 +857,17 @@ namespace RdpToolbox
 
         private void CollectDiagnosticsInBackground(string launchedClient, string reason)
         {
-            System.Threading.Tasks.Task.Run(() =>
+            System.Threading.Tasks.Task.Run(async () =>
             {
                 try
                 {
+                    // Wait for the connection to actually happen before collecting. The events
+                    // that matter most - graphics protocol version, whether AVC is available and
+                    // whether the frame buffer is in hardware or software memory - are only
+                    // written once the session negotiates, so collecting at launch would miss
+                    // precisely the evidence needed to explain a slow session.
+                    await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(45));
+
                     DiagnosticsService.Collect(appDataDir, rdpFile, settingsFile, launchedClient, reason);
                 }
                 catch
