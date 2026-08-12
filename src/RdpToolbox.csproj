@@ -38,6 +38,8 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="UIAutomationClient" />
     <Reference Include="UIAutomationTypes" />
@@ -65,5 +67,21 @@
   <ItemGroup>
     <EmbeddedResource Include="AppIcon.ico" />
   </ItemGroup>
+  <!-- Two build flavours:
+         default                  - lite. Uses a deployed or installed Remote Desktop client,
+                                    or falls back to the built-in mstsc.exe.
+         /p:EmbedClient=true      - self-contained. Embeds src\msrdc.zip so the exe carries its
+                                    own copy of the client, extracted on first use.
+       msrdc.zip is supplied locally and never committed, so the default build stays small and
+       the opt-in flag makes embedding deliberate rather than a side effect of a stray file. -->
+  <ItemGroup Condition="'$(EmbedClient)' == 'true' And Exists('msrdc.zip')">
+    <EmbeddedResource Include="msrdc.zip">
+      <LogicalName>RdpToolbox.msrdc.zip</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <Target Name="WarnIfEmbedRequestedWithoutArchive" BeforeTargets="Build"
+          Condition="'$(EmbedClient)' == 'true' And !Exists('msrdc.zip')">
+    <Warning Text="EmbedClient=true was requested but src\msrdc.zip is missing; building the lite flavour instead." />
+  </Target>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
