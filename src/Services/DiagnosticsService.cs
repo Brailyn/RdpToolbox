@@ -26,6 +26,7 @@ namespace RdpToolbox.Services
             var sb = new StringBuilder();
 
             AppendHeader(sb, launchedClient, launchReason);
+            AppendSessionSummary(sb);
             AppendSystem(sb);
             AppendGraphics(sb);
             AppendDisplays(sb);
@@ -89,6 +90,109 @@ namespace RdpToolbox.Services
             sb.AppendLine("User      : " + Environment.UserName);
             sb.AppendLine("Launched  : " + (launchedClient ?? "(nothing yet)"));
             sb.AppendLine("Reason    : " + (launchReason ?? "-"));
+        }
+
+        // Pulls the decisive facts about the most recent connection to the top of the log.
+        // Comparing two sessions by reading raw event lists invites mistaking one difference for
+        // another - notably comparing sessions that reached different hosts - so state which host
+        // answered, which transport was used and whether the modern graphics pipeline negotiated.
+        private static void AppendSessionSummary(StringBuilder sb)
+        {
+            Section(sb, "LAST SESSION SUMMARY  (compare these lines between logs)");
+            Try(sb, () =>
+            {
+                string target = null, connectedTo = null, domainSession = null;
+                string transport = null, graphics = null, frameBuffer = null;
+                var stalls = 0;
+
+                foreach (var record in ReadClientEvents(80))
+                {
+                    var text = record.Value ?? "";
+                    switch (record.Key)
+                    {
+                        case 1024: if (target == null) target = Extract(text, "server (", ")"); break;
+                        // Terminates at end of message, not the first "." - that would cut an
+                        // address like 192.168.88.6 down to "192".
+                        case 1102: if (connectedTo == null) connectedTo = Extract(text, "server ", null); break;
+                        case 1103: if (transport == null) transport = "multi-transport ESTABLISHED (UDP available)"; break;
+                        case 1104: if (transport == null) transport = "multi-transport FAILED (TCP only - normal through a port forward)"; break;
+                        case 1027: if (domainSession == null) domainSession = text; break;
+                        case 1401: if (graphics == null) graphics = text; break;
+                        case 1402: if (frameBuffer == null) frameBuffer = text; break;
+                        case 1033: if (text.IndexOf("ThreadWatchdog", StringComparison.OrdinalIgnoreCase) >= 0) stalls++; break;
+                    }
+                }
+
+                sb.AppendLine("  Target requested : " + (target ?? "(none seen)"));
+                sb.AppendLine("  Host answered    : " + (connectedTo ?? "(none seen)"));
+                sb.AppendLine("  Domain / session : " + (domainSession ?? "(none seen)"));
+                sb.AppendLine("      ^ two logs with different values here reached DIFFERENT machines,");
+                sb.AppendLine("        so any performance difference may be the host, not the client.");
+                sb.AppendLine();
+                sb.AppendLine("  Transport        : " + (transport ?? "(none seen)"));
+                sb.AppendLine("  Graphics         : " + (graphics ?? "NOT NEGOTIATED - legacy bitmap encoding (slow, progressive repaint)"));
+                sb.AppendLine("  Frame buffer     : " + (frameBuffer ?? "(not reported)"));
+                sb.AppendLine("  Receive stalls   : " + stalls + " ThreadWatchdog warnings (0 is healthy)");
+            });
+        }
+
+        private static string Extract(string text, string after, string before)
+        {
+            if (string.IsNullOrEmpty(text))
+                return null;
+
+            var start = text.IndexOf(after, StringComparison.OrdinalIgnoreCase);
+            if (start < 0)
+                return null;
+
+            start += after.Length;
+
+            if (before == null)
+                return text.Substring(start).Trim().TrimEnd('.');
+
+            var end = text.IndexOf(before, start, StringComparison.OrdinalIgnoreCase);
+            return end > start ? text.Substring(start, end - start).Trim() : text.Substring(start).Trim();
+        }
+
+        private static IEnumerable<KeyValuePair<int, string>> ReadClientEvents(int count)
+        {
+            var results = new List<KeyValuePair<int, string>>();
+            try
+            {
+                var query = new EventLogQuery(
+                    "Microsoft-Windows-TerminalServices-RDPClient/Operational", PathType.LogName)
+                {
+                    ReverseDirection = true
+                };
+
+                using (var reader = new EventLogReader(query))
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        var record = reader.ReadEvent();
+                        if (record == null)
+                            break;
+
+                        using (record)
+                        {
+                            string message;
+                            try { message = record.FormatDescription(); }
+                            catch { message = null; }
+
+                            if (message != null)
+                                message = message.Replace("\r\n", " ").Replace("\n", " ").Trim();
+
+                            results.Add(new KeyValuePair<int, string>(record.Id, message));
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Event log unavailable - summary falls back to "(none seen)"
+            }
+
+            return results;
         }
 
         private static void AppendSystem(StringBuilder sb)
