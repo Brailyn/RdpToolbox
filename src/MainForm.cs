@@ -677,29 +677,15 @@ namespace RdpToolbox
             lines.Add("bitmapcachepersistenable:i:1");
             lines.Add("videoplaybackmode:i:1");
 
-            if (IsTunnelledAddress(server))
-            {
-                // Connections through a local port forward (a jump client or gateway listening
-                // on loopback) carry only TCP. RDP's multi-transport side channel is UDP, so it
-                // cannot traverse the forward: the client logs "failed to establish the
-                // multi-transport connection", then stalls its receive thread retrying, which
-                // shows up as a session that repaints progressively and lags the pointer.
-                // Asking for TCP only avoids the doomed negotiation.
-                lines.Add("usemultitransport:i:0");
-
-                // Autodetect measures the loopback hop rather than the real link behind the
-                // tunnel, so its conclusions are meaningless here.
-                lines.Add("networkautodetect:i:0");
-                lines.Add("bandwidthautodetect:i:0");
-                lines.Add("connection type:i:6");
-            }
-            else
-            {
-                lines.Add("usemultitransport:i:1");
-                lines.Add("networkautodetect:i:1");
-                lines.Add("bandwidthautodetect:i:1");
-                lines.Add("connection type:i:7");
-            }
+            // Leave bandwidth detection on. Forcing a connection type and disabling autodetect
+            // was tried for tunnelled sessions and made them worse: autodetect also drives the
+            // client's continuous adaptation to the real link behind a tunnel, and declaring
+            // "LAN" pushes maximum quality down a link that may not carry it. Disabling
+            // multi-transport here was pointless too - the client attempts UDP regardless of
+            // the .rdp setting.
+            lines.Add("networkautodetect:i:1");
+            lines.Add("bandwidthautodetect:i:1");
+            lines.Add("connection type:i:7");
 
             lines.Add("redirectclipboard:i:" + (redirectClipboard ? 1 : 0));
             lines.Add("disableclipboardredirection:i:" + (redirectClipboard ? 0 : 1));
@@ -787,7 +773,7 @@ namespace RdpToolbox
             {
                 if (File.Exists(rdpFile))
                 {
-                    LaunchRdp(null);
+                    LaunchRdp(null, comboServer.Text.Trim());
                     return;
                 }
 
@@ -852,7 +838,7 @@ namespace RdpToolbox
             RefreshServerHistoryItems();
             comboServer.Text = server;
 
-            LaunchRdp(stagedCredentialServer);
+            LaunchRdp(stagedCredentialServer, server);
         }
 
         private void CollectDiagnosticsInBackground(string launchedClient, string reason)
@@ -910,7 +896,7 @@ namespace RdpToolbox
             return "auto";
         }
 
-        private void LaunchRdp(string stagedCredentialServer)
+        private void LaunchRdp(string stagedCredentialServer, string targetAddress)
         {
             // mstsc mis-places spanned multi-monitor sessions when monitors run at different
             // scale percentages (session opens on the wrong monitor). msrdc is per-monitor DPI
@@ -921,10 +907,20 @@ namespace RdpToolbox
             var clientPath = "mstsc.exe";
             bool usingMsrdc = false;
             var clientChoice = SelectedClientSetting();
+            bool tunnelled = IsTunnelledAddress(targetAddress);
 
             if (clientChoice == "mstsc")
             {
                 // Explicitly pinned to the built-in client - skip the scaling check entirely.
+            }
+            else if (clientChoice == "auto" && tunnelled)
+            {
+                // Sessions through a local port forward - a jump client or gateway on loopback -
+                // carry no UDP, so RDP's multi-transport negotiation always fails. msrdc handles
+                // that badly: its receive thread stalls for seconds at a time, the modern
+                // graphics pipeline never negotiates, and the session falls back to legacy
+                // bitmap encoding that repaints progressively. mstsc tolerates the same failure,
+                // so prefer it here.
             }
             else if (clientChoice == "msrdc")
             {
@@ -1015,9 +1011,15 @@ namespace RdpToolbox
                 // Record the state that produced this session, so a session that turns out to be
                 // slow or wrong can be diagnosed after the fact. Collection touches WMI and the
                 // event log, so keep it off the UI thread and never let it disturb the launch.
-                var reason = clientChoice == "auto"
-                    ? (usingMsrdc ? "automatic: mixed display scaling with a spanned session" : "automatic: no mixed-scaling span detected")
-                    : "pinned by the client selector";
+                string reason;
+                if (clientChoice != "auto")
+                    reason = "pinned by the client selector";
+                else if (tunnelled)
+                    reason = "automatic: tunnelled target (loopback), which msrdc handles poorly";
+                else if (usingMsrdc)
+                    reason = "automatic: mixed display scaling with a spanned session";
+                else
+                    reason = "automatic: no mixed-scaling span detected";
                 CollectDiagnosticsInBackground(clientPath, reason);
             }
             catch (Exception ex)
