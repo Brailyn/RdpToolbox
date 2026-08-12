@@ -667,6 +667,17 @@ namespace RdpToolbox
                     lines.Add("selectedmonitors:s:" + selectedMonitors[0].Value);
             }
 
+            // State the graphics and bandwidth settings explicitly. Left unspecified, each client
+            // applies its own defaults, so the same file can perform very differently between
+            // mstsc and msrdc - the latter can settle on a conservative codec path that repaints
+            // the screen progressively and lags the pointer.
+            lines.Add("networkautodetect:i:1");
+            lines.Add("bandwidthautodetect:i:1");
+            lines.Add("connection type:i:7");
+            lines.Add("compression:i:1");
+            lines.Add("bitmapcachepersistenable:i:1");
+            lines.Add("videoplaybackmode:i:1");
+
             lines.Add("redirectclipboard:i:" + (redirectClipboard ? 1 : 0));
             lines.Add("disableclipboardredirection:i:" + (redirectClipboard ? 0 : 1));
             lines.Add("redirectprinters:i:" + (redirectPrinters ? 1 : 0));
@@ -894,8 +905,12 @@ namespace RdpToolbox
                     }
                 }
 
-                if (usingMsrdc)
-                    statusLabel.Text = "Launched with the Remote Desktop client (msrdc) for mixed display scaling compatibility.";
+                // Always report which client ran and where it came from - "which client is this?"
+                // is otherwise guesswork, and the answer decides where to look when a session
+                // misbehaves.
+                statusLabel.Text = usingMsrdc
+                    ? "Launched with Remote Desktop client: " + clientPath
+                    : "Launched with the built-in client (mstsc.exe).";
             }
             catch (Exception ex)
             {
