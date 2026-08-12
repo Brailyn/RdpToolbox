@@ -62,6 +62,7 @@ namespace RdpToolbox
         private Label labelResolution;
         private ComboBox comboResolution;
         private ComboBox comboClient;
+        private CheckBox checkAdminSession;
         private GroupBox groupAutoClick;
         private CheckBox checkAutoConnect;
         private CheckBox checkAutoClickAll;
@@ -94,6 +95,7 @@ namespace RdpToolbox
             comboClient.SelectedItem =
                 settings.Client == "mstsc" ? ClientMstsc :
                 settings.Client == "msrdc" ? ClientMsrdc : ClientAuto;
+            checkAdminSession.Checked = settings.AdminSession == "1";
             UpdateAutoClickEnabledState();
 
             RefreshServerHistoryItems();
@@ -213,6 +215,14 @@ namespace RdpToolbox
             comboClient.Items.AddRange(new object[] { ClientAuto, ClientMstsc, ClientMsrdc });
             comboClient.SelectedIndex = 0;
             Controls.Add(comboClient);
+
+            checkAdminSession = new CheckBox
+            {
+                Text = "Admin session",
+                Location = new Point(560, 639),
+                AutoSize = true
+            };
+            Controls.Add(checkAdminSession);
 
             var buttonOpenDataFolder = new Button { Text = "Open Data Folder", Location = new Point(20, 630), Size = new Size(140, 32) };
             buttonOpenDataFolder.Click += (s, e) => Process.Start("explorer.exe", "\"" + appDataDir + "\"");
@@ -632,14 +642,18 @@ namespace RdpToolbox
             bool redirectDrives,
             bool redirectPrinters,
             bool redirectWebAuthn,
-            bool promptForCredentials)
+            bool promptForCredentials,
+            bool adminSession)
         {
             var lines = new List<string>
             {
                 "full address:s:" + server,
                 "username:s:" + username,
                 "prompt for credentials:i:" + (promptForCredentials ? 1 : 0),
-                "administrative session:i:1"
+                // Console/admin session. Inherited from the original batch script and applied
+                // unconditionally, but rarely needed - and admin sessions can be refused the
+                // advanced graphics pipeline, leaving the session on legacy bitmap encoding.
+                "administrative session:i:" + (adminSession ? 1 : 0)
             };
 
             if (customResolution.HasValue)
@@ -821,7 +835,8 @@ namespace RdpToolbox
                 checkAutoClickDrives.Checked,
                 checkAutoClickClipboard.Checked,
                 checkAutoClickPrinters.Checked,
-                SelectedClientSetting());
+                SelectedClientSetting(),
+                checkAdminSession.Checked);
 
             WriteRdpFile(
                 server,
@@ -832,7 +847,8 @@ namespace RdpToolbox
                 redirectDrives,
                 redirectPrinters,
                 redirectWebAuthn,
-                !hasPassword);
+                !hasPassword,
+                checkAdminSession.Checked);
 
             ServerHistoryService.Add(historyFile, server);
             RefreshServerHistoryItems();

@@ -15,6 +15,9 @@ namespace RdpToolbox.Services
         public string AutoClickPrinters = "0";
         // "auto" | "mstsc" | "msrdc"
         public string Client = "auto";
+        // Console/admin session. Off by default: it is rarely needed, and admin sessions can be
+        // denied the advanced graphics pipeline, forcing slow legacy bitmap encoding.
+        public string AdminSession = "0";
     }
 
     internal static class SettingsService
@@ -45,6 +48,7 @@ namespace RdpToolbox.Services
                     case "AutoClickClipboard": settings.AutoClickClipboard = value; break;
                     case "AutoClickPrinters": settings.AutoClickPrinters = value; break;
                     case "Client": settings.Client = value; break;
+                    case "AdminSession": settings.AdminSession = value; break;
                 }
             }
 
@@ -60,7 +64,8 @@ namespace RdpToolbox.Services
             bool autoClickDrives,
             bool autoClickClipboard,
             bool autoClickPrinters,
-            string client)
+            string client,
+            bool adminSession)
         {
             var lines = new List<string>
             {
@@ -71,7 +76,8 @@ namespace RdpToolbox.Services
                 "AutoClickDrives=" + (autoClickDrives ? "1" : "0"),
                 "AutoClickClipboard=" + (autoClickClipboard ? "1" : "0"),
                 "AutoClickPrinters=" + (autoClickPrinters ? "1" : "0"),
-                "Client=" + client
+                "Client=" + client,
+                "AdminSession=" + (adminSession ? "1" : "0")
             };
 
             File.WriteAllLines(settingsFile, lines);
