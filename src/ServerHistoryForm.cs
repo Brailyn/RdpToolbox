@@ -20,6 +20,7 @@ namespace RdpToolbox
 
         private void InitializeComponent()
         {
+            AutoScaleMode = AutoScaleMode.Dpi;
             Text = "Server History";
             StartPosition = FormStartPosition.CenterParent;
             Size = new Size(460, 420);

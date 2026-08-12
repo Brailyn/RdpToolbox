@@ -13,6 +13,7 @@
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
     <ApplicationIcon>AppIcon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -54,9 +55,12 @@
     <Compile Include="Services\SettingsService.cs" />
     <Compile Include="Services\ServerHistoryService.cs" />
     <Compile Include="Services\CredentialStagingService.cs" />
+    <Compile Include="Services\DisplayScalingService.cs" />
+    <Compile Include="Services\RdpClientLocator.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <None Include="app.manifest" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="AppIcon.ico" />

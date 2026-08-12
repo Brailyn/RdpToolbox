@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 
 namespace RdpToolbox.Services
@@ -14,6 +15,14 @@ namespace RdpToolbox.Services
         public static void Remove(string server)
         {
             RunCmdKey("/delete:TERMSRV/" + server);
+        }
+
+        // For clients whose launcher process may exit immediately after handing the session to
+        // another process (msrdc), removal can't be tied to process exit - instead leave the
+        // credential long enough for sign-in to complete, then remove it.
+        public static void RemoveAfterDelay(string server, TimeSpan delay)
+        {
+            System.Threading.Tasks.Task.Delay(delay).ContinueWith(_ => Remove(server));
         }
 
         private static bool RunCmdKey(string arguments)

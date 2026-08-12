@@ -7,6 +7,7 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace RdpToolbox
@@ -17,6 +18,7 @@ namespace RdpToolbox
         {
             public int Index;
             public string Value;
+            public string DisplayNumber;
             public int X, Y, Width, Height;
             public bool Primary;
         }
@@ -92,6 +94,7 @@ namespace RdpToolbox
 
         private void InitializeComponent()
         {
+            AutoScaleMode = AutoScaleMode.Dpi;
             Text = "RDP Toolbox";
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(940, 720);
@@ -105,29 +108,30 @@ namespace RdpToolbox
             {
                 Location = new Point(150, 16),
                 Size = new Size(600, 24),
-                DropDownStyle = ComboBoxStyle.DropDown
+                DropDownStyle = ComboBoxStyle.DropDown,
+                TabIndex = 0
             };
             Controls.Add(comboServer);
-
-            buttonHistory = new Button { Text = "Manage History", Location = new Point(760, 15), Size = new Size(150, 26) };
-            buttonHistory.Click += ButtonHistory_Click;
-            Controls.Add(buttonHistory);
 
             var labelUser = new Label { Text = "Username:", Location = new Point(20, 55), AutoSize = true };
             Controls.Add(labelUser);
 
-            textUser = new TextBox { Location = new Point(150, 51), Size = new Size(760, 24) };
+            textUser = new TextBox { Location = new Point(150, 51), Size = new Size(760, 24), TabIndex = 1 };
             Controls.Add(textUser);
 
             var labelPassword = new Label { Text = "Password:", Location = new Point(20, 90), AutoSize = true };
             Controls.Add(labelPassword);
 
-            textPassword = new TextBox { Location = new Point(150, 86), Size = new Size(600, 24), UseSystemPasswordChar = true };
+            textPassword = new TextBox { Location = new Point(150, 86), Size = new Size(600, 24), UseSystemPasswordChar = true, TabIndex = 2 };
             Controls.Add(textPassword);
 
-            checkShowPassword = new CheckBox { Text = "Show", Location = new Point(760, 88), AutoSize = true };
+            checkShowPassword = new CheckBox { Text = "Show", Location = new Point(760, 88), AutoSize = true, TabIndex = 3 };
             checkShowPassword.CheckedChanged += (s, e) => textPassword.UseSystemPasswordChar = !checkShowPassword.Checked;
             Controls.Add(checkShowPassword);
+
+            buttonHistory = new Button { Text = "Manage History", Location = new Point(760, 15), Size = new Size(150, 26), TabIndex = 4 };
+            buttonHistory.Click += ButtonHistory_Click;
+            Controls.Add(buttonHistory);
 
             statusLabel = new Label { Location = new Point(20, 125), Size = new Size(900, 20) };
             Controls.Add(statusLabel);
@@ -159,6 +163,7 @@ namespace RdpToolbox
             Controls.Add(labelResolution);
 
             comboResolution = new ComboBox { Location = new Point(620, 462), Size = new Size(300, 24), DropDownStyle = ComboBoxStyle.DropDownList };
+            comboResolution.SelectedIndexChanged += ComboResolution_SelectedIndexChanged;
             Controls.Add(comboResolution);
 
             groupAutoClick = new GroupBox
@@ -199,6 +204,8 @@ namespace RdpToolbox
             var buttonCancel = new Button { Text = "Cancel", Location = new Point(820, 630), Size = new Size(100, 32) };
             buttonCancel.Click += (s, e) => Close();
             Controls.Add(buttonCancel);
+
+            AcceptButton = buttonLaunch;
         }
 
         private static Icon LoadEmbeddedIcon()
@@ -250,7 +257,9 @@ namespace RdpToolbox
                 list.Add(new MonitorInfo
                 {
                     Index = i,
+                    // selectedmonitors uses Screen.AllScreens' own HMONITOR enumeration order.
                     Value = i.ToString(),
+                    DisplayNumber = ParseDisplayNumber(s.DeviceName, i).ToString(),
                     X = s.Bounds.X,
                     Y = s.Bounds.Y,
                     Width = s.Bounds.Width,
@@ -260,6 +269,12 @@ namespace RdpToolbox
             }
 
             return list;
+        }
+
+        private static int ParseDisplayNumber(string deviceName, int fallbackIndex)
+        {
+            var match = Regex.Match(deviceName ?? "", @"(\d+)$");
+            return match.Success ? int.Parse(match.Value) : fallbackIndex + 1;
         }
 
         private void SetSelectedMonitorValues(IEnumerable<string> values)
@@ -272,14 +287,32 @@ namespace RdpToolbox
             return string.Join(",", selectedMonitorValues.OrderBy(v => int.Parse(v)));
         }
 
+        private List<MonitorInfo> GetSelectedMonitors()
+        {
+            return selectedMonitorValues
+                .Select(v => monitorData.FirstOrDefault(m => m.Value == v))
+                .Where(m => m != null)
+                .OrderBy(m => int.Parse(m.Value))
+                .ToList();
+        }
+
         // Two monitors are adjacent when they share a real edge segment (not just a corner point).
+        // Windows can report monitor bounds with a few pixels of slop (rounding from mixed
+        // per-monitor DPI scaling, or imprecise manual arrangement in Display Settings), so
+        // treat edges within this many pixels of each other as touching.
+        private const int AdjacencyToleranceInPixels = 12;
+
         private static bool AreAdjacent(MonitorInfo a, MonitorInfo b)
         {
             bool verticalOverlap = a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
-            bool horizontalTouch = a.X + a.Width == b.X || b.X + b.Width == a.X;
+            bool horizontalTouch =
+                Math.Abs((a.X + a.Width) - b.X) <= AdjacencyToleranceInPixels ||
+                Math.Abs((b.X + b.Width) - a.X) <= AdjacencyToleranceInPixels;
 
             bool horizontalOverlap = a.X < b.X + b.Width && b.X < a.X + a.Width;
-            bool verticalTouch = a.Y + a.Height == b.Y || b.Y + b.Height == a.Y;
+            bool verticalTouch =
+                Math.Abs((a.Y + a.Height) - b.Y) <= AdjacencyToleranceInPixels ||
+                Math.Abs((b.Y + b.Height) - a.Y) <= AdjacencyToleranceInPixels;
 
             return (verticalOverlap && horizontalTouch) || (horizontalOverlap && verticalTouch);
         }
@@ -367,12 +400,17 @@ namespace RdpToolbox
             else
                 SetSelectedMonitorValues(new string[0]);
 
-            statusLabel.Text = string.Format(
-                "Detected {0} monitor(s). Click to select. Ctrl+Click to add an adjacent monitor.",
-                monitorData.Count);
+            statusLabel.Text = DefaultStatusText();
 
             UpdateResolutionOptions();
             previewPanel.Invalidate();
+        }
+
+        private string DefaultStatusText()
+        {
+            return string.Format(
+                "Detected {0} monitor(s). Click a monitor to add or remove it from the selection (must stay adjacent).",
+                monitorData.Count);
         }
 
         private void UpdateResolutionOptions()
@@ -404,6 +442,36 @@ namespace RdpToolbox
             }
 
             comboResolution.SelectedIndex = 0;
+        }
+
+        // Picking a specific resolution opens a plain movable window at that size rather than a
+        // session tied to a monitor's bounds, so the monitor selection is no longer meaningful -
+        // clear it instead of leaving a monitor highlighted that the launch won't actually use.
+        private void ComboResolution_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (comboResolution.SelectedItem == null)
+                return;
+            if (comboResolution.SelectedItem.ToString() == FullScreenResolutionOption)
+                return;
+            if (selectedMonitorValues.Count == 0)
+                return;
+
+            SetSelectedMonitorValues(new string[0]);
+            statusLabel.Text = DefaultStatusText();
+            previewPanel.Invalidate();
+        }
+
+        private Size? GetSelectedCustomResolution()
+        {
+            if (comboResolution.SelectedItem == null)
+                return null;
+
+            var text = comboResolution.SelectedItem.ToString();
+            if (text == FullScreenResolutionOption)
+                return null;
+
+            var parts = text.Split('x');
+            return new Size(int.Parse(parts[0].Trim()), int.Parse(parts[1].Trim()));
         }
 
         private void PreviewPanel_Paint(object sender, PaintEventArgs e)
@@ -466,7 +534,7 @@ namespace RdpToolbox
                 {
                     g.FillRectangle(brush, rect);
                     g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
-                    g.DrawString((mon.Index + 1).ToString(), font, textBrush, rect, sf);
+                    g.DrawString(mon.DisplayNumber, font, textBrush, rect, sf);
 
                     if (mon.Primary)
                     {
@@ -474,6 +542,13 @@ namespace RdpToolbox
                         {
                             g.DrawString("Primary", smallFont, textBrush, rect.X + 6, rect.Y + 6);
                         }
+                    }
+
+                    using (var resFont = new Font("Segoe UI", 8, FontStyle.Regular))
+                    using (var resSf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Far })
+                    {
+                        g.DrawString(mon.Width + " x " + mon.Height, resFont, textBrush,
+                            new RectangleF(rect.X, rect.Y, rect.Width, rect.Height - 4), resSf);
                     }
                 }
             }
@@ -494,28 +569,21 @@ namespace RdpToolbox
             if (hit == null)
                 return;
 
-            bool ctrlPressed = (ModifierKeys & Keys.Control) == Keys.Control;
             string value = hit.MonitorValue;
 
-            if (ctrlPressed)
-            {
-                var candidate = selectedMonitorValues.Contains(value)
-                    ? selectedMonitorValues.Where(v => v != value).ToList()
-                    : selectedMonitorValues.Concat(new[] { value }).ToList();
+            var candidate = selectedMonitorValues.Contains(value)
+                ? selectedMonitorValues.Where(v => v != value).ToList()
+                : selectedMonitorValues.Concat(new[] { value }).ToList();
 
-                if (IsConnectedSet(candidate))
-                {
-                    selectedMonitorValues = candidate;
-                }
-                else
-                {
-                    statusLabel.Text = "Only side-by-side (adjacent) monitors can be selected together.";
-                    return;
-                }
+            if (IsConnectedSet(candidate))
+            {
+                selectedMonitorValues = candidate;
+                statusLabel.Text = DefaultStatusText();
             }
             else
             {
-                SetSelectedMonitorValues(new[] { value });
+                statusLabel.Text = "Only side-by-side (adjacent) monitors can be selected together.";
+                return;
             }
 
             UpdateResolutionOptions();
@@ -525,7 +593,7 @@ namespace RdpToolbox
         private void WriteRdpFile(
             string server,
             string username,
-            string selectedMonitors,
+            List<MonitorInfo> selectedMonitors,
             Size? customResolution,
             bool redirectClipboard,
             bool redirectDrives,
@@ -538,12 +606,13 @@ namespace RdpToolbox
                 "full address:s:" + server,
                 "username:s:" + username,
                 "prompt for credentials:i:" + (promptForCredentials ? 1 : 0),
-                "administrative session:i:1",
-                "screen mode id:i:1"
+                "administrative session:i:1"
             };
 
             if (customResolution.HasValue)
             {
+                // Windowed so smart sizing can scale the fixed desktop size within the window.
+                lines.Add("screen mode id:i:1");
                 lines.Add("use multimon:i:0");
                 lines.Add("smart sizing:i:1");
                 lines.Add("desktopwidth:i:" + customResolution.Value.Width);
@@ -551,8 +620,11 @@ namespace RdpToolbox
             }
             else
             {
+                // Full screen is required for multimon spanning to respect physical monitor
+                // boundaries - windowed mode does not, and produces a shrunk/distorted session.
+                lines.Add("screen mode id:i:2");
                 lines.Add("use multimon:i:1");
-                lines.Add("selectedmonitors:s:" + selectedMonitors);
+                lines.Add("selectedmonitors:s:" + string.Join(",", selectedMonitors.Select(m => m.Value)));
             }
 
             lines.Add("redirectclipboard:i:" + (redirectClipboard ? 1 : 0));
@@ -580,6 +652,7 @@ namespace RdpToolbox
             if (IsConnectedSet(allValues))
             {
                 SetSelectedMonitorValues(allValues);
+                statusLabel.Text = DefaultStatusText();
             }
             else
             {
@@ -594,6 +667,7 @@ namespace RdpToolbox
         private void ButtonClear_Click(object sender, EventArgs e)
         {
             SetSelectedMonitorValues(new string[0]);
+            statusLabel.Text = DefaultStatusText();
             UpdateResolutionOptions();
             previewPanel.Invalidate();
         }
@@ -629,18 +703,12 @@ namespace RdpToolbox
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(selectedMonitors))
+            var customResolution = GetSelectedCustomResolution();
+
+            if (customResolution == null && string.IsNullOrWhiteSpace(selectedMonitors))
             {
                 MessageBox.Show("Please select at least one monitor.", "Validation");
                 return;
-            }
-
-            Size? customResolution = null;
-            if (selectedMonitorValues.Count == 1 && comboResolution.SelectedItem != null &&
-                comboResolution.SelectedItem.ToString() != FullScreenResolutionOption)
-            {
-                var parts = comboResolution.SelectedItem.ToString().Split('x');
-                customResolution = new Size(int.Parse(parts[0].Trim()), int.Parse(parts[1].Trim()));
             }
 
             bool wantAll = checkAutoClickAll.Checked;
@@ -667,7 +735,7 @@ namespace RdpToolbox
             WriteRdpFile(
                 server,
                 username,
-                selectedMonitors,
+                GetSelectedMonitors(),
                 customResolution,
                 redirectClipboard,
                 redirectDrives,
@@ -684,6 +752,45 @@ namespace RdpToolbox
 
         private void LaunchRdp(string stagedCredentialServer)
         {
+            // mstsc mis-places spanned multi-monitor sessions when monitors run at different
+            // scale percentages (session opens on the wrong monitor). msrdc is per-monitor DPI
+            // aware and doesn't have the bug, so route through it when the risky combination is
+            // in play; if it isn't installed, warn and let the user decide.
+            bool multiMonitorSpan = selectedMonitorValues.Count > 1 && GetSelectedCustomResolution() == null;
+
+            if (multiMonitorSpan && DisplayScalingService.HasMixedScaling())
+            {
+                var msrdcPath = RdpClientLocator.FindMsrdc();
+                if (msrdcPath != null)
+                {
+                    Process.Start(msrdcPath, "\"" + rdpFile + "\"");
+
+                    if (stagedCredentialServer != null)
+                        CredentialStagingService.RemoveAfterDelay(stagedCredentialServer, TimeSpan.FromMinutes(2));
+
+                    statusLabel.Text = "Launched with the Remote Desktop client (msrdc) for mixed display scaling compatibility.";
+                    return;
+                }
+
+                var result = MessageBox.Show(
+                    "Your monitors use different display scaling percentages. The built-in Remote Desktop " +
+                    "client (mstsc) has a known issue placing multi-monitor sessions on systems with mixed " +
+                    "scaling - the session may open on the wrong monitor.\n\n" +
+                    "To fix this, install Microsoft's free \"Remote Desktop client for Windows\" (MSRDC). " +
+                    "RDP Toolbox will use it automatically once installed.\n\n" +
+                    "Launch with mstsc anyway?",
+                    "Display scaling warning",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+
+                if (result != DialogResult.Yes)
+                {
+                    if (stagedCredentialServer != null)
+                        CredentialStagingService.Remove(stagedCredentialServer);
+                    return;
+                }
+            }
+
             var checkboxNames = new List<string> { "Don't ask me again for connections to this computer" };
             bool toggleAll = checkAutoConnect.Checked && checkAutoClickAll.Checked;
 
