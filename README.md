@@ -18,10 +18,23 @@ clicking through the RDP connection prompt every time.
   multi-monitor sessions when monitors run at different scale percentages (for
   example a 4K panel at 200% next to 1080p panels at 100%) - the session opens
   correctly sized but on the wrong monitor. RDP Toolbox detects this combination and
-  automatically launches through Microsoft's per-monitor-DPI-aware
-  [Remote Desktop client](https://learn.microsoft.com/windows-server/remote-desktop-services/clients/windowsdesktop)
-  (`msrdc.exe`) when it is installed, or warns and suggests installing it when it
-  isn't.
+  automatically launches through the per-monitor-DPI-aware Remote Desktop client
+  (`msrdc.exe`) if it is present on the machine, otherwise it warns before launching
+  so you can work around it (see below).
+
+  Note that `msrdc.exe` [reached end of support on 27 March 2026](https://learn.microsoft.com/en-us/previous-versions/remote-desktop-client/)
+  and is no longer distributed by Microsoft, so this path only helps on machines
+  that still have it installed. Its replacement, the
+  [Windows App](https://windows.cloud.microsoft/), is not a usable substitute here:
+  it registers no `.rdp` file association or command line, and although its package
+  does contain a copy of `msrdc.exe`, binaries under `C:\Program Files\WindowsApps`
+  cannot be started by path (Windows denies both `ShellExecute` and `CreateProcess`,
+  permitting only package activation).
+
+  **If you don't have `msrdc.exe`, set the affected monitors to the same scale
+  percentage** in **Settings > System > Display > Scale** for the duration of the
+  session. That is the reliable workaround, and the app will warn you before
+  launching so you can do it.
 - Optional password field: stages the credential in Windows Credential Manager for
   the target server before launching the client, then removes it again once the
   session closes, so the client can sign in without prompting for a password.

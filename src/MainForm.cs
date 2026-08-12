@@ -763,31 +763,47 @@ namespace RdpToolbox
                 var msrdcPath = RdpClientLocator.FindMsrdc();
                 if (msrdcPath != null)
                 {
-                    Process.Start(msrdcPath, "\"" + rdpFile + "\"");
+                    try
+                    {
+                        Process.Start(msrdcPath, "\"" + rdpFile + "\"");
 
-                    if (stagedCredentialServer != null)
-                        CredentialStagingService.RemoveAfterDelay(stagedCredentialServer, TimeSpan.FromMinutes(2));
+                        if (stagedCredentialServer != null)
+                            CredentialStagingService.RemoveAfterDelay(stagedCredentialServer, TimeSpan.FromMinutes(2));
 
-                    statusLabel.Text = "Launched with the Remote Desktop client (msrdc) for mixed display scaling compatibility.";
-                    return;
+                        statusLabel.Text = "Launched with the Remote Desktop client (msrdc) for mixed display scaling compatibility.";
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Fall through to mstsc rather than failing the launch outright.
+                        MessageBox.Show(
+                            "Could not start the Remote Desktop client (msrdc):\n\n" + ex.Message +
+                            "\n\nFalling back to the built-in client (mstsc). If the monitors use different " +
+                            "scaling, the session may open on the wrong monitor.",
+                            "Remote Desktop client unavailable",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                    }
                 }
-
-                var result = MessageBox.Show(
-                    "Your monitors use different display scaling percentages. The built-in Remote Desktop " +
-                    "client (mstsc) has a known issue placing multi-monitor sessions on systems with mixed " +
-                    "scaling - the session may open on the wrong monitor.\n\n" +
-                    "To fix this, install Microsoft's free \"Remote Desktop client for Windows\" (MSRDC). " +
-                    "RDP Toolbox will use it automatically once installed.\n\n" +
-                    "Launch with mstsc anyway?",
-                    "Display scaling warning",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Warning);
-
-                if (result != DialogResult.Yes)
+                else
                 {
-                    if (stagedCredentialServer != null)
-                        CredentialStagingService.Remove(stagedCredentialServer);
-                    return;
+                    var result = MessageBox.Show(
+                        "Your monitors use different display scaling percentages. The built-in Remote Desktop " +
+                        "client (mstsc) has a known issue placing multi-monitor sessions on systems with mixed " +
+                        "scaling - the session may open on the wrong monitor.\n\n" +
+                        "The most reliable fix is to set the affected monitors to the same scale percentage in " +
+                        "Settings > System > Display.\n\n" +
+                        "Launch with mstsc anyway?",
+                        "Display scaling warning",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning);
+
+                    if (result != DialogResult.Yes)
+                    {
+                        if (stagedCredentialServer != null)
+                            CredentialStagingService.Remove(stagedCredentialServer);
+                        return;
+                    }
                 }
             }
 
@@ -802,12 +818,26 @@ namespace RdpToolbox
                 if (checkAutoClickPrinters.Checked) checkboxNames.Add("Printers");
             }
 
-            var process = RdpAutoConnectService.Connect(rdpFile, checkAutoConnect.Checked, checkboxNames.ToArray(), toggleAll);
-
-            if (stagedCredentialServer != null && process != null)
+            try
             {
-                process.EnableRaisingEvents = true;
-                process.Exited += (s, e) => CredentialStagingService.Remove(stagedCredentialServer);
+                var process = RdpAutoConnectService.Connect(rdpFile, checkAutoConnect.Checked, checkboxNames.ToArray(), toggleAll);
+
+                if (stagedCredentialServer != null && process != null)
+                {
+                    process.EnableRaisingEvents = true;
+                    process.Exited += (s, e) => CredentialStagingService.Remove(stagedCredentialServer);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (stagedCredentialServer != null)
+                    CredentialStagingService.Remove(stagedCredentialServer);
+
+                MessageBox.Show(
+                    "Could not start the Remote Desktop connection:\n\n" + ex.Message,
+                    "Launch failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
         }
     }
