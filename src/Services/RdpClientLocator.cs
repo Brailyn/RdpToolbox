@@ -20,12 +20,33 @@ namespace RdpToolbox.Services
         {
             var candidates = new[]
             {
+                // Checked first so a copy placed next to RdpToolbox.exe wins, which keeps the
+                // tool portable on machines without msrdc installed. Nothing is redistributed
+                // with RDP Toolbox - supplying that copy is up to whoever deploys it.
+                Path.Combine(AppDirectory, "msrdc", "msrdc.exe"),
+                Path.Combine(AppDirectory, "msrdc.exe"),
+
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Apps", "Remote Desktop", "msrdc.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Remote Desktop", "msrdc.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Remote Desktop", "msrdc.exe")
             };
 
             return candidates.FirstOrDefault(SafeFileExists);
+        }
+
+        private static string AppDirectory
+        {
+            get
+            {
+                try
+                {
+                    return Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "";
+                }
+                catch
+                {
+                    return "";
+                }
+            }
         }
 
         private static bool SafeFileExists(string path)

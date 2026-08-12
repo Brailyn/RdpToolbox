@@ -758,32 +758,16 @@ namespace RdpToolbox
             // in play; if it isn't installed, warn and let the user decide.
             bool multiMonitorSpan = selectedMonitorValues.Count > 1 && GetSelectedCustomResolution() == null;
 
+            var clientPath = "mstsc.exe";
+            bool usingMsrdc = false;
+
             if (multiMonitorSpan && DisplayScalingService.HasMixedScaling())
             {
                 var msrdcPath = RdpClientLocator.FindMsrdc();
                 if (msrdcPath != null)
                 {
-                    try
-                    {
-                        Process.Start(msrdcPath, "\"" + rdpFile + "\"");
-
-                        if (stagedCredentialServer != null)
-                            CredentialStagingService.RemoveAfterDelay(stagedCredentialServer, TimeSpan.FromMinutes(2));
-
-                        statusLabel.Text = "Launched with the Remote Desktop client (msrdc) for mixed display scaling compatibility.";
-                        return;
-                    }
-                    catch (Exception ex)
-                    {
-                        // Fall through to mstsc rather than failing the launch outright.
-                        MessageBox.Show(
-                            "Could not start the Remote Desktop client (msrdc):\n\n" + ex.Message +
-                            "\n\nFalling back to the built-in client (mstsc). If the monitors use different " +
-                            "scaling, the session may open on the wrong monitor.",
-                            "Remote Desktop client unavailable",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Warning);
-                    }
+                    clientPath = msrdcPath;
+                    usingMsrdc = true;
                 }
                 else
                 {
@@ -820,13 +804,26 @@ namespace RdpToolbox
 
             try
             {
-                var process = RdpAutoConnectService.Connect(rdpFile, checkAutoConnect.Checked, checkboxNames.ToArray(), toggleAll);
+                var process = RdpAutoConnectService.Connect(
+                    clientPath, rdpFile, checkAutoConnect.Checked, checkboxNames.ToArray(), toggleAll);
 
-                if (stagedCredentialServer != null && process != null)
+                if (stagedCredentialServer != null)
                 {
-                    process.EnableRaisingEvents = true;
-                    process.Exited += (s, e) => CredentialStagingService.Remove(stagedCredentialServer);
+                    if (usingMsrdc)
+                    {
+                        // msrdc's launcher process can hand the session to another process and
+                        // exit, so process exit is not a reliable "session ended" signal here.
+                        CredentialStagingService.RemoveAfterDelay(stagedCredentialServer, TimeSpan.FromMinutes(2));
+                    }
+                    else if (process != null)
+                    {
+                        process.EnableRaisingEvents = true;
+                        process.Exited += (s, e) => CredentialStagingService.Remove(stagedCredentialServer);
+                    }
                 }
+
+                if (usingMsrdc)
+                    statusLabel.Text = "Launched with the Remote Desktop client (msrdc) for mixed display scaling compatibility.";
             }
             catch (Exception ex)
             {

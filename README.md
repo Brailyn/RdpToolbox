@@ -35,6 +35,12 @@ clicking through the RDP connection prompt every time.
   percentage** in **Settings > System > Display > Scale** for the duration of the
   session. That is the reliable workaround, and the app will warn you before
   launching so you can do it.
+
+  For portable deployments, RDP Toolbox also looks for `msrdc.exe` next to its own
+  executable (either alongside it or in an `msrdc\` subfolder) before checking the
+  installed locations, so a copy can travel with the tool. No Microsoft binaries are
+  redistributed with RDP Toolbox - supplying that copy, and complying with its
+  licence terms, is up to whoever deploys it.
 - Optional password field: stages the credential in Windows Credential Manager for
   the target server before launching the client, then removes it again once the
   session closes, so the client can sign in without prompting for a password.
