@@ -31,6 +31,10 @@ namespace RdpToolbox
 
         private const string FullScreenResolutionOption = "Full screen (span selected monitor)";
 
+        private const string ClientAuto = "Automatic";
+        private const string ClientMstsc = "Built-in (mstsc)";
+        private const string ClientMsrdc = "Remote Desktop (msrdc)";
+
         private static readonly Size[] TypicalResolutions =
         {
             new Size(1024, 768), new Size(1152, 864), new Size(1280, 720), new Size(1280, 800),
@@ -57,6 +61,7 @@ namespace RdpToolbox
         private Panel previewPanel;
         private Label labelResolution;
         private ComboBox comboResolution;
+        private ComboBox comboClient;
         private GroupBox groupAutoClick;
         private CheckBox checkAutoConnect;
         private CheckBox checkAutoClickAll;
@@ -86,6 +91,9 @@ namespace RdpToolbox
             checkAutoClickDrives.Checked = settings.AutoClickDrives != "0";
             checkAutoClickClipboard.Checked = settings.AutoClickClipboard != "0";
             checkAutoClickPrinters.Checked = settings.AutoClickPrinters != "0";
+            comboClient.SelectedItem =
+                settings.Client == "mstsc" ? ClientMstsc :
+                settings.Client == "msrdc" ? ClientMsrdc : ClientAuto;
             UpdateAutoClickEnabledState();
 
             RefreshServerHistoryItems();
@@ -192,6 +200,19 @@ namespace RdpToolbox
 
             checkAutoClickPrinters = new CheckBox { Text = "Printers", Location = new Point(430, 55), AutoSize = true };
             groupAutoClick.Controls.Add(checkAutoClickPrinters);
+
+            var labelClient = new Label { Text = "Client:", Location = new Point(200, 639), AutoSize = true };
+            Controls.Add(labelClient);
+
+            comboClient = new ComboBox
+            {
+                Location = new Point(250, 635),
+                Size = new Size(230, 24),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            comboClient.Items.AddRange(new object[] { ClientAuto, ClientMstsc, ClientMsrdc });
+            comboClient.SelectedIndex = 0;
+            Controls.Add(comboClient);
 
             var buttonOpenDataFolder = new Button { Text = "Open Data Folder", Location = new Point(20, 630), Size = new Size(160, 32) };
             buttonOpenDataFolder.Click += (s, e) => Process.Start("explorer.exe", "\"" + appDataDir + "\"");
@@ -389,9 +410,17 @@ namespace RdpToolbox
         {
             monitorData = GetDetectedMonitors();
 
+            // Only keep saved values that match a monitor that actually exists. Settings carried
+            // between machines can name monitors this one does not have, and an unmatched value
+            // would otherwise survive validation while resolving to no monitor at launch -
+            // producing "use multimon" with an empty selectedmonitors list, which makes the
+            // client span every monitor instead of the intended ones.
             var saved = string.IsNullOrWhiteSpace(savedMonitors)
                 ? new string[0]
-                : savedMonitors.Split(',').Select(v => v.Trim()).Where(v => v != "").ToArray();
+                : savedMonitors.Split(',')
+                    .Select(v => v.Trim())
+                    .Where(v => v != "" && monitorData.Any(m => m.Value == v))
+                    .ToArray();
 
             if (saved.Length > 0 && IsConnectedSet(saved))
                 SetSelectedMonitorValues(saved);
@@ -618,13 +647,24 @@ namespace RdpToolbox
                 lines.Add("desktopwidth:i:" + customResolution.Value.Width);
                 lines.Add("desktopheight:i:" + customResolution.Value.Height);
             }
-            else
+            else if (selectedMonitors.Count > 1)
             {
                 // Full screen is required for multimon spanning to respect physical monitor
                 // boundaries - windowed mode does not, and produces a shrunk/distorted session.
                 lines.Add("screen mode id:i:2");
                 lines.Add("use multimon:i:1");
                 lines.Add("selectedmonitors:s:" + string.Join(",", selectedMonitors.Select(m => m.Value)));
+            }
+            else
+            {
+                // A single monitor, or none resolved. Never write "use multimon" with an empty
+                // selectedmonitors list: the client reads that as "span everything", producing a
+                // session covering every monitor - a huge canvas that is slow to the point of
+                // being unusable.
+                lines.Add("screen mode id:i:2");
+                lines.Add("use multimon:i:0");
+                if (selectedMonitors.Count == 1)
+                    lines.Add("selectedmonitors:s:" + selectedMonitors[0].Value);
             }
 
             lines.Add("redirectclipboard:i:" + (redirectClipboard ? 1 : 0));
@@ -730,7 +770,8 @@ namespace RdpToolbox
                 checkAutoClickWebAuthn.Checked,
                 checkAutoClickDrives.Checked,
                 checkAutoClickClipboard.Checked,
-                checkAutoClickPrinters.Checked);
+                checkAutoClickPrinters.Checked,
+                SelectedClientSetting());
 
             WriteRdpFile(
                 server,
@@ -750,6 +791,14 @@ namespace RdpToolbox
             LaunchRdp(stagedCredentialServer);
         }
 
+        private string SelectedClientSetting()
+        {
+            var choice = comboClient.SelectedItem as string;
+            if (choice == ClientMstsc) return "mstsc";
+            if (choice == ClientMsrdc) return "msrdc";
+            return "auto";
+        }
+
         private void LaunchRdp(string stagedCredentialServer)
         {
             // mstsc mis-places spanned multi-monitor sessions when monitors run at different
@@ -760,8 +809,31 @@ namespace RdpToolbox
 
             var clientPath = "mstsc.exe";
             bool usingMsrdc = false;
+            var clientChoice = SelectedClientSetting();
 
-            if (multiMonitorSpan && DisplayScalingService.HasMixedScaling())
+            if (clientChoice == "mstsc")
+            {
+                // Explicitly pinned to the built-in client - skip the scaling check entirely.
+            }
+            else if (clientChoice == "msrdc")
+            {
+                var pinned = RdpClientLocator.FindMsrdc();
+                if (pinned != null)
+                {
+                    clientPath = pinned;
+                    usingMsrdc = true;
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "The Remote Desktop client (msrdc) was selected but could not be found.\n\n" +
+                        "Falling back to the built-in client (mstsc).",
+                        "Remote Desktop client not found",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+            }
+            else if (multiMonitorSpan && DisplayScalingService.HasMixedScaling())
             {
                 var msrdcPath = RdpClientLocator.FindMsrdc();
                 if (msrdcPath != null)

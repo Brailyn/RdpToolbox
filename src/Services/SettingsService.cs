@@ -13,6 +13,8 @@ namespace RdpToolbox.Services
         public string AutoClickDrives = "0";
         public string AutoClickClipboard = "1";
         public string AutoClickPrinters = "0";
+        // "auto" | "mstsc" | "msrdc"
+        public string Client = "auto";
     }
 
     internal static class SettingsService
@@ -42,6 +44,7 @@ namespace RdpToolbox.Services
                     case "AutoClickDrives": settings.AutoClickDrives = value; break;
                     case "AutoClickClipboard": settings.AutoClickClipboard = value; break;
                     case "AutoClickPrinters": settings.AutoClickPrinters = value; break;
+                    case "Client": settings.Client = value; break;
                 }
             }
 
@@ -56,7 +59,8 @@ namespace RdpToolbox.Services
             bool autoClickWebAuthn,
             bool autoClickDrives,
             bool autoClickClipboard,
-            bool autoClickPrinters)
+            bool autoClickPrinters,
+            string client)
         {
             var lines = new List<string>
             {
@@ -66,7 +70,8 @@ namespace RdpToolbox.Services
                 "AutoClickWebAuthn=" + (autoClickWebAuthn ? "1" : "0"),
                 "AutoClickDrives=" + (autoClickDrives ? "1" : "0"),
                 "AutoClickClipboard=" + (autoClickClipboard ? "1" : "0"),
-                "AutoClickPrinters=" + (autoClickPrinters ? "1" : "0")
+                "AutoClickPrinters=" + (autoClickPrinters ? "1" : "0"),
+                "Client=" + client
             };
 
             File.WriteAllLines(settingsFile, lines);
