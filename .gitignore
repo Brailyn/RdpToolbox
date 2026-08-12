@@ -8,3 +8,8 @@ BOMGAR MULTI SCREEN GUI.ps1
 
 # Remote Desktop client installers - not redistributed with this project
 *.msi
+
+# Local portable deployment: RdpToolbox.exe plus a trimmed copy of the Remote
+# Desktop client in msrdc\. Kept out of the repo - no Microsoft binaries are
+# redistributed here - and out of src\bin so clean rebuilds do not wipe it.
+dist/
