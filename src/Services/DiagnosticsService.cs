@@ -32,6 +32,7 @@ namespace RdpToolbox.Services
             AppendClients(sb, launchedClient);
             AppendFile(sb, "GENERATED .RDP", rdpFile);
             AppendFile(sb, "SETTINGS", settingsFile);
+            AppendTransportPolicy(sb);
             AppendClientTraceLocations(sb);
             AppendEventLog(sb);
 
@@ -39,11 +40,36 @@ namespace RdpToolbox.Services
                 dataDir,
                 "diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".log");
 
-            // Write with a BOM: version strings carry characters like (R), and without one
-            // readers fall back to the ANSI codepage and mangle them.
-            File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
+            // Plain ASCII, no BOM. These logs get pasted into mail and chat, where anything
+            // else reliably arrives mangled - a BOM shows up as stray characters and symbols
+            // like (R) turn into noise.
+            File.WriteAllText(path, ToAscii(sb.ToString()), Encoding.ASCII);
             PruneOldLogs(dataDir);
             return path;
+        }
+
+        private static string ToAscii(string text)
+        {
+            var sb = new StringBuilder(text.Length);
+            foreach (var c in text)
+            {
+                if (c < 128) { sb.Append(c); continue; }
+
+                switch (c)
+                {
+                    case '®': sb.Append("(R)"); break;
+                    case '©': sb.Append("(C)"); break;
+                    case '™': sb.Append("(TM)"); break;
+                    case '–':
+                    case '—': sb.Append('-'); break;
+                    case '‘':
+                    case '’': sb.Append('\''); break;
+                    case '“':
+                    case '”': sb.Append('"'); break;
+                    default: sb.Append('?'); break;
+                }
+            }
+            return sb.ToString();
         }
 
         private static void Section(StringBuilder sb, string title)
@@ -264,6 +290,48 @@ namespace RdpToolbox.Services
         private static bool IsLaunchable(string path)
         {
             return path.IndexOf(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
+        // RDP's UDP side channel cannot cross a TCP port forward, so tunnelled sessions always
+        // fail the multi-transport negotiation. The .rdp "usemultitransport" property does not
+        // stop the client attempting it - only this policy does - so its state matters when a
+        // tunnelled session performs badly.
+        private static void AppendTransportPolicy(StringBuilder sb)
+        {
+            Section(sb, "TRANSPORT POLICY (UDP / multi-transport)");
+            Try(sb, () =>
+            {
+                const string policyKey = @"SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services\Client";
+
+                using (var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                                            .OpenSubKey(policyKey))
+                {
+                    var value = key == null ? null : key.GetValue("fClientDisableUDP");
+                    sb.AppendLine(@"  HKLM\" + policyKey);
+                    sb.AppendLine("    fClientDisableUDP = " +
+                        (value == null ? "(not set - client will attempt UDP)" : value + (value.ToString() == "1" ? "  (UDP disabled, TCP only)" : "")));
+                }
+
+                foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
+                {
+                    using (var key = RegistryKey.OpenBaseKey(hive, RegistryView.Registry64)
+                                                .OpenSubKey(@"SOFTWARE\Microsoft\Terminal Server Client"))
+                    {
+                        if (key == null)
+                            continue;
+
+                        var names = key.GetValueNames();
+                        if (names.Length == 0)
+                            continue;
+
+                        sb.AppendLine();
+                        sb.AppendLine("  " + (hive == RegistryHive.CurrentUser ? "HKCU" : "HKLM") +
+                                      @"\SOFTWARE\Microsoft\Terminal Server Client");
+                        foreach (var name in names)
+                            sb.AppendLine("    " + name + " = " + key.GetValue(name));
+                    }
+                }
+            });
         }
 
         private static void AppendClientTraceLocations(StringBuilder sb)
