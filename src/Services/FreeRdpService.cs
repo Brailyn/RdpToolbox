@@ -20,29 +20,46 @@ namespace RdpToolbox.Services
     // path used for the Microsoft clients.
     internal static class FreeRdpService
     {
+        // FreeRDP 3 replaced the Windows GDI client (wfreerdp) with an SDL-based one, and current
+        // Windows builds ship only sdl-freerdp.exe. Prefer that, and still accept wfreerdp so an
+        // older build keeps working. Both take the same command line.
+        private static readonly string[] ExecutableNames = { "sdl-freerdp.exe", "wfreerdp.exe" };
+
         public static string Find()
         {
-            var candidates = new List<string>();
+            var roots = new List<string>();
 
             var appDir = AppDirectory();
             if (appDir.Length > 0)
             {
-                candidates.Add(Path.Combine(appDir, "freerdp", "wfreerdp.exe"));
-                candidates.Add(Path.Combine(appDir, "wfreerdp.exe"));
+                roots.Add(Path.Combine(appDir, "freerdp"));
+                roots.Add(appDir);
             }
 
-            candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "FreeRDP", "wfreerdp.exe"));
-            candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "FreeRDP", "wfreerdp.exe"));
-            candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "FreeRDP", "wfreerdp.exe"));
+            roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "FreeRDP"));
+            roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "FreeRDP"));
+            roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "FreeRDP"));
+            roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "chocolatey", "bin"));
+            roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "scoop", "shims"));
 
-            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            candidates.Add(Path.Combine(programData, "chocolatey", "bin", "wfreerdp.exe"));
+            foreach (var root in roots)
+            {
+                foreach (var name in ExecutableNames)
+                {
+                    var candidate = Path.Combine(root, name);
+                    if (SafeExists(candidate))
+                        return candidate;
+                }
+            }
 
-            var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            candidates.Add(Path.Combine(profile, "scoop", "shims", "wfreerdp.exe"));
+            foreach (var name in ExecutableNames)
+            {
+                var onPath = FindOnPath(name);
+                if (onPath != null)
+                    return onPath;
+            }
 
-            var found = candidates.FirstOrDefault(SafeExists);
-            return found ?? FindOnPath("wfreerdp.exe");
+            return null;
         }
 
         // FreeRDP 3 renamed several options: certificate handling moved from "/cert-ignore" to

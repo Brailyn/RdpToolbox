@@ -34,7 +34,7 @@ namespace RdpToolbox
         private const string ClientAuto = "Automatic";
         private const string ClientMstsc = "Built-in (mstsc)";
         private const string ClientMsrdc = "Remote Desktop (msrdc)";
-        private const string ClientFreeRdp = "FreeRDP (wfreerdp)";
+        private const string ClientFreeRdp = "FreeRDP (sdl-freerdp)";
 
         private static readonly Size[] TypicalResolutions =
         {
@@ -1071,9 +1071,10 @@ namespace RdpToolbox
                 {
                     selection.Reason = "pinned to FreeRDP, which was not found - fell back to mstsc";
                     MessageBox.Show(
-                        "FreeRDP (wfreerdp.exe) was selected but could not be found.\n\n" +
-                        "Place wfreerdp.exe and its files in a \"freerdp\" folder next to " +
-                        "RdpToolbox.exe, or install FreeRDP so it is on PATH.\n\n" +
+                        "FreeRDP was selected but could not be found.\n\n" +
+                        "Place sdl-freerdp.exe in a \"freerdp\" folder next to RdpToolbox.exe, " +
+                        "or install FreeRDP so it is on PATH. Older builds naming it " +
+                        "wfreerdp.exe are also accepted.\n\n" +
                         "Falling back to the built-in client (mstsc).",
                         "FreeRDP not found",
                         MessageBoxButtons.OK,
