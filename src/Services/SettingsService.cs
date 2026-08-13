@@ -18,6 +18,10 @@ namespace RdpToolbox.Services
         // Console/admin session. Off by default: it is rarely needed, and admin sessions can be
         // denied the advanced graphics pipeline, forcing slow legacy bitmap encoding.
         public string AdminSession = "0";
+        // Span as a positioned window instead of full screen. Works around mstsc placing a
+        // spanned session on the wrong monitor, at the cost of a title bar and no full screen,
+        // so it stays opt-in.
+        public string WindowedSpan = "0";
     }
 
     internal static class SettingsService
@@ -49,6 +53,7 @@ namespace RdpToolbox.Services
                     case "AutoClickPrinters": settings.AutoClickPrinters = value; break;
                     case "Client": settings.Client = value; break;
                     case "AdminSession": settings.AdminSession = value; break;
+                    case "WindowedSpan": settings.WindowedSpan = value; break;
                 }
             }
 
@@ -65,7 +70,8 @@ namespace RdpToolbox.Services
             bool autoClickClipboard,
             bool autoClickPrinters,
             string client,
-            bool adminSession)
+            bool adminSession,
+            bool windowedSpan)
         {
             var lines = new List<string>
             {
@@ -77,7 +83,8 @@ namespace RdpToolbox.Services
                 "AutoClickClipboard=" + (autoClickClipboard ? "1" : "0"),
                 "AutoClickPrinters=" + (autoClickPrinters ? "1" : "0"),
                 "Client=" + client,
-                "AdminSession=" + (adminSession ? "1" : "0")
+                "AdminSession=" + (adminSession ? "1" : "0"),
+                "WindowedSpan=" + (windowedSpan ? "1" : "0")
             };
 
             File.WriteAllLines(settingsFile, lines);

@@ -63,6 +63,7 @@ namespace RdpToolbox
         private ComboBox comboResolution;
         private ComboBox comboClient;
         private CheckBox checkAdminSession;
+        private CheckBox checkWindowedSpan;
         private GroupBox groupAutoClick;
         private CheckBox checkAutoConnect;
         private CheckBox checkAutoClickAll;
@@ -96,6 +97,7 @@ namespace RdpToolbox
                 settings.Client == "mstsc" ? ClientMstsc :
                 settings.Client == "msrdc" ? ClientMsrdc : ClientAuto;
             checkAdminSession.Checked = settings.AdminSession == "1";
+            checkWindowedSpan.Checked = settings.WindowedSpan == "1";
             UpdateAutoClickEnabledState();
 
             RefreshServerHistoryItems();
@@ -107,8 +109,8 @@ namespace RdpToolbox
             AutoScaleMode = AutoScaleMode.Dpi;
             Text = "RDP Toolbox";
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(940, 720);
-            MinimumSize = new Size(940, 720);
+            Size = new Size(940, 758);
+            MinimumSize = new Size(940, 758);
             Icon = LoadEmbeddedIcon();
 
             var labelServer = new Label { Text = "Server Address:", Location = new Point(20, 20), AutoSize = true };
@@ -203,12 +205,12 @@ namespace RdpToolbox
             checkAutoClickPrinters = new CheckBox { Text = "Printers", Location = new Point(430, 55), AutoSize = true };
             groupAutoClick.Controls.Add(checkAutoClickPrinters);
 
-            var labelClient = new Label { Text = "Client:", Location = new Point(288, 639), AutoSize = true };
+            var labelClient = new Label { Text = "Client:", Location = new Point(300, 626), AutoSize = true };
             Controls.Add(labelClient);
 
             comboClient = new ComboBox
             {
-                Location = new Point(336, 635),
+                Location = new Point(348, 622),
                 Size = new Size(210, 24),
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
@@ -219,24 +221,43 @@ namespace RdpToolbox
             checkAdminSession = new CheckBox
             {
                 Text = "Admin session",
-                Location = new Point(560, 639),
+                Location = new Point(20, 622),
                 AutoSize = true
             };
             Controls.Add(checkAdminSession);
 
-            var buttonOpenDataFolder = new Button { Text = "Open Data Folder", Location = new Point(20, 630), Size = new Size(140, 32) };
+            checkWindowedSpan = new CheckBox
+            {
+                Text = "Windowed span",
+                Location = new Point(150, 622),
+                AutoSize = true
+            };
+            Controls.Add(checkWindowedSpan);
+
+            var tips = new ToolTip();
+            tips.SetToolTip(checkWindowedSpan,
+                "Spans the selected monitors as a positioned window instead of full screen.\r\n" +
+                "Works around mstsc opening a spanned session on the wrong monitor when\r\n" +
+                "monitors use different scaling - at the cost of a title bar, and the\r\n" +
+                "session cannot be made full screen.");
+            tips.SetToolTip(checkAdminSession,
+                "Connects to the console/administrative session.\r\n" +
+                "Rarely needed, and can prevent the advanced graphics pipeline from\r\n" +
+                "negotiating, which leaves the session on slower legacy encoding.");
+
+            var buttonOpenDataFolder = new Button { Text = "Open Data Folder", Location = new Point(20, 668), Size = new Size(140, 32) };
             buttonOpenDataFolder.Click += (s, e) => Process.Start("explorer.exe", "\"" + appDataDir + "\"");
             Controls.Add(buttonOpenDataFolder);
 
-            var buttonDiagnostics = new Button { Text = "Diagnostics", Location = new Point(168, 630), Size = new Size(100, 32) };
+            var buttonDiagnostics = new Button { Text = "Diagnostics", Location = new Point(168, 668), Size = new Size(100, 32) };
             buttonDiagnostics.Click += ButtonDiagnostics_Click;
             Controls.Add(buttonDiagnostics);
 
-            var buttonLaunch = new Button { Text = "Launch RDP", Location = new Point(700, 630), Size = new Size(110, 32) };
+            var buttonLaunch = new Button { Text = "Launch RDP", Location = new Point(700, 668), Size = new Size(110, 32) };
             buttonLaunch.Click += ButtonLaunch_Click;
             Controls.Add(buttonLaunch);
 
-            var buttonCancel = new Button { Text = "Cancel", Location = new Point(820, 630), Size = new Size(100, 32) };
+            var buttonCancel = new Button { Text = "Cancel", Location = new Point(820, 668), Size = new Size(100, 32) };
             buttonCancel.Click += (s, e) => Close();
             Controls.Add(buttonCancel);
 
@@ -847,8 +868,12 @@ namespace RdpToolbox
             // msrdc does not, so the .rdp has to be written to suit whichever will run.
             bool multiMonitorSpan = selectedMonitorValues.Count > 1 && customResolution == null;
             var clientSelection = SelectClient(server, multiMonitorSpan);
+
+            // Opt-in only. It fixes mstsc placing a spanned session on the wrong monitor, but the
+            // result is a fixed-size window: it carries a title bar and cannot be made full
+            // screen, so it is not a straight improvement and must not be applied unasked.
             bool spanAsPositionedWindow =
-                multiMonitorSpan && !clientSelection.IsMsrdc && DisplayScalingService.HasMixedScaling();
+                multiMonitorSpan && checkWindowedSpan.Checked && !clientSelection.IsMsrdc;
 
             bool hasPassword = !string.IsNullOrEmpty(password);
             string stagedCredentialServer = null;
@@ -865,7 +890,8 @@ namespace RdpToolbox
                 checkAutoClickClipboard.Checked,
                 checkAutoClickPrinters.Checked,
                 SelectedClientSetting(),
-                checkAdminSession.Checked);
+                checkAdminSession.Checked,
+                checkWindowedSpan.Checked);
 
             WriteRdpFile(
                 server,
