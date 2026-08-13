@@ -643,7 +643,8 @@ namespace RdpToolbox
             bool redirectPrinters,
             bool redirectWebAuthn,
             bool promptForCredentials,
-            bool adminSession)
+            bool adminSession,
+            bool spanAsPositionedWindow)
         {
             var lines = new List<string>
             {
@@ -664,6 +665,26 @@ namespace RdpToolbox
                 lines.Add("smart sizing:i:1");
                 lines.Add("desktopwidth:i:" + customResolution.Value.Width);
                 lines.Add("desktopheight:i:" + customResolution.Value.Height);
+            }
+            else if (selectedMonitors.Count > 1 && spanAsPositionedWindow)
+            {
+                // mstsc computes the spanned canvas correctly but anchors it to its own monitor 0,
+                // so a span that excludes that monitor opens on the wrong screen. Dragging the
+                // session onto the intended monitors fills them exactly - the size is right, only
+                // the placement is wrong - and maximising sends it back, because the fault is in
+                // the full-screen path. So skip that path: open a window already sized and
+                // positioned over the selected monitors.
+                int minX = selectedMonitors.Min(m => m.X);
+                int minY = selectedMonitors.Min(m => m.Y);
+                int spanWidth = selectedMonitors.Max(m => m.X + m.Width) - minX;
+                int spanHeight = selectedMonitors.Max(m => m.Y + m.Height) - minY;
+
+                lines.Add("screen mode id:i:1");
+                lines.Add("use multimon:i:0");
+                lines.Add("smart sizing:i:0");
+                lines.Add("desktopwidth:i:" + spanWidth);
+                lines.Add("desktopheight:i:" + spanHeight);
+                lines.Add("winposstr:s:0,1," + minX + "," + minY + "," + (minX + spanWidth) + "," + (minY + spanHeight));
             }
             else if (selectedMonitors.Count > 1)
             {
@@ -787,7 +808,8 @@ namespace RdpToolbox
             {
                 if (File.Exists(rdpFile))
                 {
-                    LaunchRdp(null, comboServer.Text.Trim());
+                    // Reusing the existing .rdp as written - no spanning decision to make here.
+                    LaunchRdp(null, SelectClient(comboServer.Text.Trim(), false));
                     return;
                 }
 
@@ -821,6 +843,13 @@ namespace RdpToolbox
             bool redirectWebAuthn = wantAll || checkAutoClickWebAuthn.Checked;
             bool redirectClipboard = wantAll || checkAutoClickClipboard.Checked;
 
+            // Choose the client before writing the file: mstsc needs the spanning workaround,
+            // msrdc does not, so the .rdp has to be written to suit whichever will run.
+            bool multiMonitorSpan = selectedMonitorValues.Count > 1 && customResolution == null;
+            var clientSelection = SelectClient(server, multiMonitorSpan);
+            bool spanAsPositionedWindow =
+                multiMonitorSpan && !clientSelection.IsMsrdc && DisplayScalingService.HasMixedScaling();
+
             bool hasPassword = !string.IsNullOrEmpty(password);
             string stagedCredentialServer = null;
             if (hasPassword && CredentialStagingService.Stage(server, username, password))
@@ -848,13 +877,14 @@ namespace RdpToolbox
                 redirectPrinters,
                 redirectWebAuthn,
                 !hasPassword,
-                checkAdminSession.Checked);
+                checkAdminSession.Checked,
+                spanAsPositionedWindow);
 
             ServerHistoryService.Add(historyFile, server);
             RefreshServerHistoryItems();
             comboServer.Text = server;
 
-            LaunchRdp(stagedCredentialServer, server);
+            LaunchRdp(stagedCredentialServer, clientSelection);
         }
 
         private void CollectDiagnosticsInBackground(string launchedClient, string reason)
@@ -912,22 +942,24 @@ namespace RdpToolbox
             return "auto";
         }
 
-        private void LaunchRdp(string stagedCredentialServer, string targetAddress)
+        private class ClientSelection
         {
-            // mstsc mis-places spanned multi-monitor sessions when monitors run at different
-            // scale percentages (session opens on the wrong monitor). msrdc is per-monitor DPI
-            // aware and doesn't have the bug, so route through it when the risky combination is
-            // in play; if it isn't installed, warn and let the user decide.
-            bool multiMonitorSpan = selectedMonitorValues.Count > 1 && GetSelectedCustomResolution() == null;
+            public string Path = "mstsc.exe";
+            public bool IsMsrdc;
+            public string Reason;
+        }
 
-            var clientPath = "mstsc.exe";
-            bool usingMsrdc = false;
+        // Decided before the .rdp is written, because the file has to suit the client: mstsc
+        // needs the spanning workaround below, msrdc does not.
+        private ClientSelection SelectClient(string targetAddress, bool multiMonitorSpan)
+        {
+            var selection = new ClientSelection();
             var clientChoice = SelectedClientSetting();
             bool tunnelled = IsTunnelledAddress(targetAddress);
 
             if (clientChoice == "mstsc")
             {
-                // Explicitly pinned to the built-in client - skip the scaling check entirely.
+                selection.Reason = "pinned by the client selector";
             }
             else if (clientChoice == "auto" && tunnelled)
             {
@@ -935,19 +967,21 @@ namespace RdpToolbox
                 // carry no UDP, so RDP's multi-transport negotiation always fails. msrdc handles
                 // that badly: its receive thread stalls for seconds at a time, the modern
                 // graphics pipeline never negotiates, and the session falls back to legacy
-                // bitmap encoding that repaints progressively. mstsc tolerates the same failure,
-                // so prefer it here.
+                // bitmap encoding that repaints progressively. mstsc tolerates the same failure.
+                selection.Reason = "automatic: tunnelled target (loopback), which msrdc handles poorly";
             }
             else if (clientChoice == "msrdc")
             {
                 var pinned = RdpClientLocator.FindMsrdc();
                 if (pinned != null)
                 {
-                    clientPath = pinned;
-                    usingMsrdc = true;
+                    selection.Path = pinned;
+                    selection.IsMsrdc = true;
+                    selection.Reason = "pinned by the client selector";
                 }
                 else
                 {
+                    selection.Reason = "pinned to msrdc, which was not found - fell back to mstsc";
                     MessageBox.Show(
                         "The Remote Desktop client (msrdc) was selected but could not be found.\n\n" +
                         "Falling back to the built-in client (mstsc).",
@@ -961,30 +995,27 @@ namespace RdpToolbox
                 var msrdcPath = RdpClientLocator.FindMsrdc();
                 if (msrdcPath != null)
                 {
-                    clientPath = msrdcPath;
-                    usingMsrdc = true;
+                    selection.Path = msrdcPath;
+                    selection.IsMsrdc = true;
+                    selection.Reason = "automatic: mixed display scaling with a spanned session";
                 }
                 else
                 {
-                    var result = MessageBox.Show(
-                        "Your monitors use different display scaling percentages. The built-in Remote Desktop " +
-                        "client (mstsc) has a known issue placing multi-monitor sessions on systems with mixed " +
-                        "scaling - the session may open on the wrong monitor.\n\n" +
-                        "The most reliable fix is to set the affected monitors to the same scale percentage in " +
-                        "Settings > System > Display.\n\n" +
-                        "Launch with mstsc anyway?",
-                        "Display scaling warning",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Warning);
-
-                    if (result != DialogResult.Yes)
-                    {
-                        if (stagedCredentialServer != null)
-                            CredentialStagingService.Remove(stagedCredentialServer);
-                        return;
-                    }
+                    selection.Reason = "automatic: mixed scaling, msrdc unavailable - mstsc with the spanning workaround";
                 }
             }
+            else
+            {
+                selection.Reason = "automatic: no mixed-scaling span detected";
+            }
+
+            return selection;
+        }
+
+        private void LaunchRdp(string stagedCredentialServer, ClientSelection selection)
+        {
+            var clientPath = selection.Path;
+            bool usingMsrdc = selection.IsMsrdc;
 
             var checkboxNames = new List<string> { "Don't ask me again for connections to this computer" };
             bool toggleAll = checkAutoConnect.Checked && checkAutoClickAll.Checked;
@@ -1027,16 +1058,7 @@ namespace RdpToolbox
                 // Record the state that produced this session, so a session that turns out to be
                 // slow or wrong can be diagnosed after the fact. Collection touches WMI and the
                 // event log, so keep it off the UI thread and never let it disturb the launch.
-                string reason;
-                if (clientChoice != "auto")
-                    reason = "pinned by the client selector";
-                else if (tunnelled)
-                    reason = "automatic: tunnelled target (loopback), which msrdc handles poorly";
-                else if (usingMsrdc)
-                    reason = "automatic: mixed display scaling with a spanned session";
-                else
-                    reason = "automatic: no mixed-scaling span detected";
-                CollectDiagnosticsInBackground(clientPath, reason);
+                CollectDiagnosticsInBackground(clientPath, selection.Reason);
             }
             catch (Exception ex)
             {
