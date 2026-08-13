@@ -665,7 +665,8 @@ namespace RdpToolbox
             bool redirectWebAuthn,
             bool promptForCredentials,
             bool adminSession,
-            bool spanAsPositionedWindow)
+            bool spanAsPositionedWindow,
+            bool downgradeCodecForTunnel)
         {
             var lines = new List<string>
             {
@@ -733,15 +734,36 @@ namespace RdpToolbox
             lines.Add("bitmapcachepersistenable:i:1");
             lines.Add("videoplaybackmode:i:1");
 
-            // Leave bandwidth detection on. Forcing a connection type and disabling autodetect
-            // was tried for tunnelled sessions and made them worse: autodetect also drives the
-            // client's continuous adaptation to the real link behind a tunnel, and declaring
-            // "LAN" pushes maximum quality down a link that may not carry it. Disabling
-            // multi-transport here was pointless too - the client attempts UDP regardless of
-            // the .rdp setting.
-            lines.Add("networkautodetect:i:1");
-            lines.Add("bandwidthautodetect:i:1");
-            lines.Add("connection type:i:7");
+            if (downgradeCodecForTunnel)
+            {
+                // msrdc drives an advanced hardware-accelerated codec path that cannot establish
+                // through a loopback tunnel: the graphics pipeline never negotiates and its
+                // receive thread stalls for seconds at a time. Turning off detection and the
+                // video playback path asks it for a simpler pipeline.
+                //
+                // Note this deliberately does not force a connection type. Doing that alongside
+                // these settings was tried and made tunnelled sessions worse - declaring "LAN"
+                // asks for maximum quality over a link that may not carry it.
+                lines.Add("networkautodetect:i:0");
+                lines.Add("bandwidthautodetect:i:0");
+                lines.Add("videoplaybackmode:i:0");
+
+                // msrdc prefers UDP for screen updates and throttles its frame rate when the
+                // transport is unavailable - which it always is through a TCP-only tunnel. The
+                // multi-transport property does not stop it (the client still initiates and
+                // fails the negotiation), so also ask for the rate-control protocol itself to be
+                // off. Unrecognised properties are ignored by the client, so this costs nothing
+                // if the name is wrong.
+                lines.Add("enableurcp:i:0");
+                lines.Add("usemultitransport:i:0");
+            }
+            else
+            {
+                lines.Add("networkautodetect:i:1");
+                lines.Add("bandwidthautodetect:i:1");
+                lines.Add("connection type:i:7");
+                lines.Add("videoplaybackmode:i:1");
+            }
 
             lines.Add("redirectclipboard:i:" + (redirectClipboard ? 1 : 0));
             lines.Add("disableclipboardredirection:i:" + (redirectClipboard ? 0 : 1));
@@ -875,6 +897,10 @@ namespace RdpToolbox
             bool spanAsPositionedWindow =
                 multiMonitorSpan && checkWindowedSpan.Checked && !clientSelection.IsMsrdc;
 
+            // Only msrdc needs this, and only through a tunnel: mstsc's legacy path performs
+            // fine there, so leave its settings alone.
+            bool downgradeCodecForTunnel = clientSelection.IsMsrdc && IsTunnelledAddress(server);
+
             bool hasPassword = !string.IsNullOrEmpty(password);
             string stagedCredentialServer = null;
             if (hasPassword && CredentialStagingService.Stage(server, username, password))
@@ -904,7 +930,8 @@ namespace RdpToolbox
                 redirectWebAuthn,
                 !hasPassword,
                 checkAdminSession.Checked,
-                spanAsPositionedWindow);
+                spanAsPositionedWindow,
+                downgradeCodecForTunnel);
 
             ServerHistoryService.Add(historyFile, server);
             RefreshServerHistoryItems();
