@@ -740,14 +740,16 @@ namespace RdpToolbox
             {
                 // msrdc drives an advanced hardware-accelerated codec path that cannot establish
                 // through a loopback tunnel: the graphics pipeline never negotiates and its
-                // receive thread stalls for seconds at a time. Turning off detection and the
-                // video playback path asks it for a simpler pipeline.
+                // receive thread stalls for seconds at a time. Asking it to skip the video
+                // playback path leaves less to fall back from.
                 //
-                // Note this deliberately does not force a connection type. Doing that alongside
-                // these settings was tried and made tunnelled sessions worse - declaring "LAN"
-                // asks for maximum quality over a link that may not carry it.
-                lines.Add("networkautodetect:i:0");
-                lines.Add("bandwidthautodetect:i:0");
+                // Detection stays ON here. Turning it off was tried twice and made tunnelled
+                // sessions worse - the client's own connection details then showed round-trip
+                // time and available bandwidth stuck at "Calculating..." with the frame rate at
+                // zero, because its rate control never receives an estimate to work from.
+                lines.Add("networkautodetect:i:1");
+                lines.Add("bandwidthautodetect:i:1");
+                lines.Add("connection type:i:7");
                 lines.Add("videoplaybackmode:i:0");
 
                 // msrdc prefers UDP for screen updates and throttles its frame rate when the
