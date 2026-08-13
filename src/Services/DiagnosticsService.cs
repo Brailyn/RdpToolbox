@@ -303,6 +303,30 @@ namespace RdpToolbox.Services
                     sb.AppendLine("        Origin  : " + DescribeOrigin(path));
                     sb.AppendLine("        Usable  : " + (IsLaunchable(path) ? "yes" : "NO - inside a Store package, cannot be started by path"));
                 }
+
+                sb.AppendLine();
+                var freeRdp = FreeRdpService.Find();
+                if (freeRdp == null)
+                {
+                    sb.AppendLine("  FreeRDP  : not found");
+                }
+                else
+                {
+                    sb.AppendLine("  FreeRDP  : " + freeRdp);
+                    sb.AppendLine("        Version : " + FileVersion(freeRdp) +
+                                  "  (major " + FreeRdpService.MajorVersion(freeRdp) + ")");
+
+                    // FreeRDP numbers monitors by its own enumeration, which need not match the
+                    // ids used for the Microsoft clients. Mismatched ids are what put a spanned
+                    // session on the wrong monitor before, so record what it actually reports.
+                    sb.AppendLine("        Its own monitor numbering:");
+                    foreach (var line in FreeRdpService.ListMonitors(freeRdp)
+                                 .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+                                 .Take(12))
+                    {
+                        sb.AppendLine("          " + line.Trim());
+                    }
+                }
             });
         }
 

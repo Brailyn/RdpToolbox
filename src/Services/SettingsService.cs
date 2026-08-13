@@ -13,7 +13,7 @@ namespace RdpToolbox.Services
         public string AutoClickDrives = "0";
         public string AutoClickClipboard = "1";
         public string AutoClickPrinters = "0";
-        // "auto" | "mstsc" | "msrdc"
+        // "auto" | "mstsc" | "msrdc" | "freerdp"
         public string Client = "auto";
         // Console/admin session. Off by default: it is rarely needed, and admin sessions can be
         // denied the advanced graphics pipeline, forcing slow legacy bitmap encoding.

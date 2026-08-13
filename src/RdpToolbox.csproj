@@ -61,6 +61,7 @@
     <Compile Include="Services\DisplayScalingService.cs" />
     <Compile Include="Services\RdpClientLocator.cs" />
     <Compile Include="Services\DiagnosticsService.cs" />
+    <Compile Include="Services\FreeRdpService.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

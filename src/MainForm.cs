@@ -34,6 +34,7 @@ namespace RdpToolbox
         private const string ClientAuto = "Automatic";
         private const string ClientMstsc = "Built-in (mstsc)";
         private const string ClientMsrdc = "Remote Desktop (msrdc)";
+        private const string ClientFreeRdp = "FreeRDP (wfreerdp)";
 
         private static readonly Size[] TypicalResolutions =
         {
@@ -95,7 +96,8 @@ namespace RdpToolbox
             checkAutoClickPrinters.Checked = settings.AutoClickPrinters != "0";
             comboClient.SelectedItem =
                 settings.Client == "mstsc" ? ClientMstsc :
-                settings.Client == "msrdc" ? ClientMsrdc : ClientAuto;
+                settings.Client == "msrdc" ? ClientMsrdc :
+                settings.Client == "freerdp" ? ClientFreeRdp : ClientAuto;
             checkAdminSession.Checked = settings.AdminSession == "1";
             checkWindowedSpan.Checked = settings.WindowedSpan == "1";
             UpdateAutoClickEnabledState();
@@ -214,7 +216,7 @@ namespace RdpToolbox
                 Size = new Size(210, 24),
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
-            comboClient.Items.AddRange(new object[] { ClientAuto, ClientMstsc, ClientMsrdc });
+            comboClient.Items.AddRange(new object[] { ClientAuto, ClientMstsc, ClientMsrdc, ClientFreeRdp });
             comboClient.SelectedIndex = 0;
             Controls.Add(comboClient);
 
@@ -918,8 +920,14 @@ namespace RdpToolbox
 
             bool hasPassword = !string.IsNullOrEmpty(password);
             string stagedCredentialServer = null;
-            if (hasPassword && CredentialStagingService.Stage(server, username, password))
+
+            // FreeRDP receives the credential as an argument, so staging one in Credential
+            // Manager would leave an entry behind that nothing consumes.
+            if (hasPassword && !clientSelection.IsFreeRdp &&
+                CredentialStagingService.Stage(server, username, password))
+            {
                 stagedCredentialServer = server;
+            }
 
             SettingsService.Save(
                 settingsFile,
@@ -933,6 +941,16 @@ namespace RdpToolbox
                 SelectedClientSetting(),
                 checkAdminSession.Checked,
                 checkWindowedSpan.Checked);
+
+            if (clientSelection.IsFreeRdp)
+            {
+                ServerHistoryService.Add(historyFile, server);
+                RefreshServerHistoryItems();
+                comboServer.Text = server;
+
+                LaunchFreeRdp(clientSelection, server, username, password);
+                return;
+            }
 
             WriteRdpFile(
                 server,
@@ -1007,6 +1025,7 @@ namespace RdpToolbox
             var choice = comboClient.SelectedItem as string;
             if (choice == ClientMstsc) return "mstsc";
             if (choice == ClientMsrdc) return "msrdc";
+            if (choice == ClientFreeRdp) return "freerdp";
             return "auto";
         }
 
@@ -1014,6 +1033,7 @@ namespace RdpToolbox
         {
             public string Path = "mstsc.exe";
             public bool IsMsrdc;
+            public bool IsFreeRdp;
             public string Reason;
         }
 
@@ -1037,6 +1057,28 @@ namespace RdpToolbox
                 // graphics pipeline never negotiates, and the session falls back to legacy
                 // bitmap encoding that repaints progressively. mstsc tolerates the same failure.
                 selection.Reason = "automatic: tunnelled target (loopback), which msrdc handles poorly";
+            }
+            else if (clientChoice == "freerdp")
+            {
+                var freeRdp = FreeRdpService.Find();
+                if (freeRdp != null)
+                {
+                    selection.Path = freeRdp;
+                    selection.IsFreeRdp = true;
+                    selection.Reason = "pinned by the client selector";
+                }
+                else
+                {
+                    selection.Reason = "pinned to FreeRDP, which was not found - fell back to mstsc";
+                    MessageBox.Show(
+                        "FreeRDP (wfreerdp.exe) was selected but could not be found.\n\n" +
+                        "Place wfreerdp.exe and its files in a \"freerdp\" folder next to " +
+                        "RdpToolbox.exe, or install FreeRDP so it is on PATH.\n\n" +
+                        "Falling back to the built-in client (mstsc).",
+                        "FreeRDP not found",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
             }
             else if (clientChoice == "msrdc")
             {
@@ -1078,6 +1120,47 @@ namespace RdpToolbox
             }
 
             return selection;
+        }
+
+        // FreeRDP is driven entirely by command-line arguments, so it does not use the generated
+        // .rdp file or the connection-prompt automation - it takes the certificate decision as an
+        // argument instead of showing a dialog to click.
+        private void LaunchFreeRdp(ClientSelection selection, string server, string username, string password)
+        {
+            var options = new FreeRdpService.LaunchOptions
+            {
+                Server = server,
+                Username = username,
+                Password = password,
+                CustomResolution = GetSelectedCustomResolution(),
+                RedirectClipboard = checkAutoClickAll.Checked || checkAutoClickClipboard.Checked,
+                RedirectDrives = checkAutoClickAll.Checked || checkAutoClickDrives.Checked,
+                RedirectPrinters = checkAutoClickAll.Checked || checkAutoClickPrinters.Checked,
+                DynamicResolution = true
+            };
+
+            options.MonitorIds.AddRange(GetSelectedMonitors().Select(m => m.Value));
+            options.SpanMonitors = options.MonitorIds.Count > 1;
+
+            var arguments = FreeRdpService.BuildArguments(selection.Path, options);
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(selection.Path, arguments) { UseShellExecute = false });
+
+                statusLabel.Text = "Launched with FreeRDP: " + selection.Path;
+                CollectDiagnosticsInBackground(
+                    selection.Path + "  " + FreeRdpService.Redact(arguments),
+                    selection.Reason);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Could not start FreeRDP:\n\n" + ex.Message,
+                    "Launch failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
 
         private void LaunchRdp(string stagedCredentialServer, ClientSelection selection)
