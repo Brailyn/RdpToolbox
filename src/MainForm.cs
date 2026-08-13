@@ -715,6 +715,17 @@ namespace RdpToolbox
                 lines.Add("screen mode id:i:2");
                 lines.Add("use multimon:i:1");
                 lines.Add("selectedmonitors:s:" + string.Join(",", selectedMonitors.Select(m => m.Value)));
+
+                // Anchor hint. mstsc chooses where a full-screen session lands from where its
+                // own window sits, and both observed misplacements landed on the monitor the
+                // launcher was on rather than the selected ones. winposstr sets that initial
+                // window placement, so plant it on the selected monitors; clients that place
+                // correctly anyway (msrdc) ignore the hint's monitor when going full screen.
+                int minX = selectedMonitors.Min(m => m.X);
+                int minY = selectedMonitors.Min(m => m.Y);
+                int spanWidth = selectedMonitors.Max(m => m.X + m.Width) - minX;
+                int spanHeight = selectedMonitors.Max(m => m.Y + m.Height) - minY;
+                lines.Add("winposstr:s:0,1," + minX + "," + minY + "," + (minX + spanWidth) + "," + (minY + spanHeight));
             }
             else
             {
