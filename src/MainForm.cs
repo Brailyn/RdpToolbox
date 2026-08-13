@@ -730,9 +730,11 @@ namespace RdpToolbox
 
             // State the graphics and bandwidth settings explicitly rather than relying on each
             // client's defaults.
+            // videoplaybackmode is set by each branch below, not here - writing it in both
+            // places emitted the key twice with opposite values, and which one a client honours
+            // is undefined.
             lines.Add("compression:i:1");
             lines.Add("bitmapcachepersistenable:i:1");
-            lines.Add("videoplaybackmode:i:1");
 
             if (downgradeCodecForTunnel)
             {

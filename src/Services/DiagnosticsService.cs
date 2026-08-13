@@ -133,6 +133,18 @@ namespace RdpToolbox.Services
                 sb.AppendLine("  Graphics         : " + (graphics ?? "NOT NEGOTIATED - legacy bitmap encoding (slow, progressive repaint)"));
                 sb.AppendLine("  Frame buffer     : " + (frameBuffer ?? "(not reported)"));
                 sb.AppendLine("  Receive stalls   : " + stalls + " ThreadWatchdog warnings (0 is healthy)");
+
+                // Running the client from inside another RDP session nests one session in
+                // another. That is slow by itself, whichever client and settings are used, and
+                // makes the result incomparable with a run from a physical machine - worth
+                // stating outright rather than leaving it to be spotted in the system section.
+                if (SystemInformation.TerminalServerSession)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("  NOTE: this machine is itself inside an RDP session, so this session is");
+                    sb.AppendLine("        nested inside another one. That is slow regardless of client or");
+                    sb.AppendLine("        settings - compare only against other runs from this same machine.");
+                }
             });
         }
 
