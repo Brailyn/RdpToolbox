@@ -41,6 +41,21 @@ clicking through the RDP connection prompt every time.
   installed locations, so a copy can travel with the tool. No Microsoft binaries are
   redistributed with RDP Toolbox - supplying that copy, and complying with its
   licence terms, is up to whoever deploys it.
+- **Client selection**: choose Automatic, the built-in `mstsc`, Microsoft's
+  `msrdc`, or [FreeRDP](https://ci.freerdp.com/job/freerdp-nightly-windows/).
+  Automatic prefers `msrdc` for spanned sessions across monitors of differing
+  scale, and `mstsc` for connections through a local tunnel, where `msrdc`
+  collapses to legacy encoding. Pinning a client overrides that.
+
+  FreeRDP is useful where both Microsoft clients fall short: it speaks plain TCP
+  with no cloud transport stack, addresses monitors directly, and offers dynamic
+  scaling. Download `sdl-freerdp.exe` from the
+  [nightly Windows builds](https://ci.freerdp.com/job/freerdp-nightly-windows/)
+  (FreeRDP 3 replaced the older `wfreerdp.exe`, which is also still accepted) and
+  place it in a `freerdp` folder next to `RdpToolbox.exe`, or install it so it is
+  on `PATH`. Note that FreeRDP receives the password as a command-line argument,
+  which is briefly visible to other processes on the machine.
+
 - Optional password field: stages the credential in Windows Credential Manager for
   the target server before launching the client, then removes it again once the
   session closes, so the client can sign in without prompting for a password.

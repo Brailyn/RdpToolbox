@@ -173,6 +173,82 @@ namespace RdpToolbox.Services
             return rebuilt.ToString().TrimEnd();
         }
 
+        public class FreeRdpMonitor
+        {
+            public int Id;
+            public int X, Y, Width, Height;
+        }
+
+        // Parses the monitor list the client prints, so its own ids can be used rather than the
+        // ids this tool assigns. The two enumerations need not agree, and sending the wrong ones
+        // puts the session on the wrong monitors.
+        public static List<FreeRdpMonitor> GetMonitors(string clientPath)
+        {
+            var monitors = new List<FreeRdpMonitor>();
+
+            try
+            {
+                // Lines look like "[0] 1920x1080 +0+0", possibly behind a log prefix and with
+                // negative offsets for monitors left of or above the primary.
+                var pattern = new System.Text.RegularExpressions.Regex(
+                    @"\[(?<id>\d+)\]\s+(?<w>\d+)\s*x\s*(?<h>\d+)\s+(?<x>[+-]\d+)(?<y>[+-]\d+)");
+
+                foreach (var line in ListMonitors(clientPath)
+                             .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var match = pattern.Match(line);
+                    if (!match.Success)
+                        continue;
+
+                    monitors.Add(new FreeRdpMonitor
+                    {
+                        Id = int.Parse(match.Groups["id"].Value),
+                        Width = int.Parse(match.Groups["w"].Value),
+                        Height = int.Parse(match.Groups["h"].Value),
+                        X = int.Parse(match.Groups["x"].Value),
+                        Y = int.Parse(match.Groups["y"].Value)
+                    });
+                }
+            }
+            catch
+            {
+                // Unparseable output - caller falls back to its own ids
+            }
+
+            return monitors;
+        }
+
+        // Translates monitors described by their screen position into the client's own ids.
+        // Returns null when any monitor cannot be matched, so the caller can fall back rather
+        // than send a partly-wrong list.
+        public static List<string> MapToClientIds(
+            string clientPath,
+            IEnumerable<Rectangle> selectedBounds)
+        {
+            var available = GetMonitors(clientPath);
+            if (available.Count == 0)
+                return null;
+
+            var ids = new List<string>();
+            foreach (var bounds in selectedBounds)
+            {
+                // Position identifies a monitor unambiguously; allow a little slack in case the
+                // client reports rounded coordinates.
+                var match = available.FirstOrDefault(m =>
+                    Math.Abs(m.X - bounds.X) <= 2 &&
+                    Math.Abs(m.Y - bounds.Y) <= 2 &&
+                    Math.Abs(m.Width - bounds.Width) <= 2 &&
+                    Math.Abs(m.Height - bounds.Height) <= 2);
+
+                if (match == null)
+                    return null;
+
+                ids.Add(match.Id.ToString());
+            }
+
+            return ids;
+        }
+
         // FreeRDP numbers monitors by its own enumeration, which need not match the order used
         // elsewhere in this tool. Asking the client itself avoids guessing at the mapping.
         public static string ListMonitors(string clientPath)

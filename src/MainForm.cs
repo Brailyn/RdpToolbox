@@ -1128,6 +1128,7 @@ namespace RdpToolbox
         // argument instead of showing a dialog to click.
         private void LaunchFreeRdp(ClientSelection selection, string server, string username, string password)
         {
+            string monitorMappingNote = "";
             var options = new FreeRdpService.LaunchOptions
             {
                 Server = server,
@@ -1140,7 +1141,24 @@ namespace RdpToolbox
                 DynamicResolution = true
             };
 
-            options.MonitorIds.AddRange(GetSelectedMonitors().Select(m => m.Value));
+            // FreeRDP numbers monitors by its own enumeration. Sending this tool's ids put the
+            // session on the wrong monitors, so ask the client for its numbering and translate
+            // by screen position, falling back only if it cannot be read.
+            var selected = GetSelectedMonitors();
+            var mapped = FreeRdpService.MapToClientIds(
+                selection.Path,
+                selected.Select(m => new Rectangle(m.X, m.Y, m.Width, m.Height)));
+
+            if (mapped != null)
+            {
+                options.MonitorIds.AddRange(mapped);
+            }
+            else
+            {
+                options.MonitorIds.AddRange(selected.Select(m => m.Value));
+                monitorMappingNote = " (could not read FreeRDP's monitor numbering - used this tool's ids)";
+            }
+
             options.SpanMonitors = options.MonitorIds.Count > 1;
 
             var arguments = FreeRdpService.BuildArguments(selection.Path, options);
@@ -1149,7 +1167,8 @@ namespace RdpToolbox
             {
                 Process.Start(new ProcessStartInfo(selection.Path, arguments) { UseShellExecute = false });
 
-                statusLabel.Text = "Launched with FreeRDP: " + selection.Path;
+                statusLabel.Text = "Launched with FreeRDP on monitor(s) " +
+                    string.Join(",", options.MonitorIds) + monitorMappingNote;
                 CollectDiagnosticsInBackground(
                     selection.Path + "  " + FreeRdpService.Redact(arguments),
                     selection.Reason);
